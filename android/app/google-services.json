@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "496318858476",
+    "project_id": "mystme-e249b",
+    "storage_bucket": "mystme-e249b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:496318858476:android:da5e0f1f3d6bc23ef611c9",
+        "android_client_info": {
+          "package_name": "com.mystme.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9kkF2FoD1mAHlcQosHx3xrrSBB6cEDjg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
