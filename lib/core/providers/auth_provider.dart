@@ -13,6 +13,8 @@ class AuthState {
     this.pseudo,
     this.avatarSeed,
     this.bio,
+    this.email,
+    this.emailVerifiedAt,
     this.isLoading = false,
     this.error,
   });
@@ -21,16 +23,21 @@ class AuthState {
   final String? pseudo;
   final String? avatarSeed;
   final String? bio;
+  final String? email;
+  final DateTime? emailVerifiedAt;
   final bool isLoading;
   final String? error;
 
   bool get isAuthenticated => userId != null;
+  bool get isEmailVerified => emailVerifiedAt != null;
 
   AuthState copyWith({
     String? userId,
     String? pseudo,
     String? avatarSeed,
     String? bio,
+    String? email,
+    DateTime? emailVerifiedAt,
     bool? isLoading,
     String? error,
   }) {
@@ -39,6 +46,8 @@ class AuthState {
       pseudo: pseudo ?? this.pseudo,
       avatarSeed: avatarSeed ?? this.avatarSeed,
       bio: bio ?? this.bio,
+      email: email ?? this.email,
+      emailVerifiedAt: emailVerifiedAt ?? this.emailVerifiedAt,
       isLoading: isLoading ?? this.isLoading,
       error: error,
     );
@@ -85,6 +94,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
           pseudo: pseudo,
           avatarSeed: _extractSeed(me['avatar_url'] as String?, pseudo),
           bio: (me['bio'] as String?) ?? '',
+          email: me['email'] as String?,
+          emailVerifiedAt: DateTime.tryParse(
+            (me['email_verified_at'] as String?) ?? '',
+          ),
         );
 
         await PushNotificationService.syncToken(_client);
@@ -107,6 +120,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
         pseudo: pseudo,
         avatarSeed: _extractSeed(me['avatar_url'] as String?, pseudo),
         bio: (me['bio'] as String?) ?? '',
+        email: me['email'] as String?,
+        emailVerifiedAt: DateTime.tryParse(
+          (me['email_verified_at'] as String?) ?? '',
+        ),
       );
     } catch (_) {}
   }
@@ -146,6 +163,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Restore session from a recovery key and refresh auth state.
   Future<void> restoreWithRecoveryKey(String recoveryKey) async {
     await _client.restoreWithRecoveryKey(recoveryKey);
+    await refreshMe();
+  }
+
+  /// Request OTP code to link an email to this anonymous account.
+  Future<void> requestEmailOtp(String email) async {
+    await _client.post('/identity/email/request-otp', {
+      'email': email,
+    });
+  }
+
+  /// Verify OTP code and persist linked email on auth state.
+  Future<void> verifyEmailOtp({
+    required String email,
+    required String code,
+  }) async {
+    await _client.post('/identity/email/verify-otp', {
+      'email': email,
+      'code': code,
+    });
     await refreshMe();
   }
 }

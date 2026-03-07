@@ -327,6 +327,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   /// Extra features section — link sharing, QR, regenerate identity.
   Widget _buildExtraSection(
       String linkUrl, String linkDisplay, String userName) {
+    final auth = ref.watch(authProvider);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -418,6 +419,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             trailing: const Icon(Icons.chevron_right_rounded,
                 color: Colors.white, size: 22),
             onTap: _showRestoreRecoveryKeyDialog,
+          ),
+          const SizedBox(height: 10),
+
+          // ── Optional OTP email linkage ──
+          _ExtraTile(
+            icon: Icons.alternate_email_rounded,
+            label: 'Lier un email (OTP)',
+            subtitle: auth.email == null
+                ? 'Sécuriser la récupération multi-appareil'
+                : 'Email lié: ${auth.email}${auth.isEmailVerified ? ' (vérifié)' : ''}',
+            trailing: const Icon(Icons.chevron_right_rounded,
+                color: Colors.white, size: 22),
+            onTap: _showEmailOtpLinkDialog,
           ),
           const SizedBox(height: 10),
 
@@ -587,6 +601,98 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
 
     controller.dispose();
+  }
+
+  Future<void> _showEmailOtpLinkDialog() async {
+    final emailController = TextEditingController(text: ref.read(authProvider).email ?? '');
+    final codeController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Text('Lier un email (OTP)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                hintText: 'exemple@email.com',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: codeController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Code OTP',
+                hintText: '123456',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final email = emailController.text.trim();
+              if (email.isEmpty) return;
+              try {
+                await ref.read(authProvider.notifier).requestEmailOtp(email);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Code OTP envoyé par email.')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Échec envoi OTP: $e')),
+                );
+              }
+            },
+            child: const Text('Envoyer OTP'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final email = emailController.text.trim();
+              final code = codeController.text.trim();
+              if (email.isEmpty || code.isEmpty) return;
+              try {
+                await ref
+                    .read(authProvider.notifier)
+                    .verifyEmailOtp(email: email, code: code);
+                if (!mounted) return;
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Email vérifié avec succès.')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Vérification OTP échouée: $e')),
+                );
+              }
+            },
+            child: const Text(
+              'Vérifier OTP',
+              style: TextStyle(color: AppColors.primaryStart),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    emailController.dispose();
+    codeController.dispose();
   }
 }
 
