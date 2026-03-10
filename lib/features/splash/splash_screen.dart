@@ -42,10 +42,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   Future<void> _bootstrap() async {
     try {
-      // Check if we already have a stored token (returning user).
       final storage = ref.read(secureStorageProvider);
+      final onboardingDone =
+          await storage.read(key: 'mystme_onboarding_complete');
       final existingToken = await storage.read(key: 'mystme_token');
-      final isReturning = existingToken != null;
 
       // Init auth (loads or creates identity via backend).
       // Short timeout so the splash never hangs when backend is down.
@@ -60,7 +60,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       if (!mounted) return;
 
       final auth = ref.read(authProvider);
-      if (auth.isAuthenticated && isReturning) {
+      // Returning user who already completed onboarding → go home.
+      if (onboardingDone == 'true' &&
+          (auth.isAuthenticated || existingToken != null)) {
         _goSafely('/home');
       } else {
         _goSafely('/onboarding');
@@ -68,8 +70,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     } catch (e) {
       debugPrint('Bootstrap error: $e');
       if (!mounted) return;
-      // On error (timeout, network, etc.) → go to onboarding anyway.
-      _goSafely('/onboarding');
+      // If onboarding was already completed, go home even on error.
+      final storage = ref.read(secureStorageProvider);
+      final done = await storage.read(key: 'mystme_onboarding_complete');
+      _goSafely(done == 'true' ? '/home' : '/onboarding');
     }
   }
 

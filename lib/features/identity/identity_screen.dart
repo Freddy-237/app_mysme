@@ -43,7 +43,11 @@ class _IdentityScreenState extends ConsumerState<IdentityScreen>
     super.dispose();
   }
 
-  void _continue() {
+  void _continue() async {
+    // Mark onboarding as completed so we skip it on next launch.
+    final storage = ref.read(secureStorageProvider);
+    await storage.write(key: 'mystme_onboarding_complete', value: 'true');
+    if (!mounted) return;
     context.go('/home');
   }
 

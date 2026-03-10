@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:motion_tab_bar/MotionTabBarController.dart';
-import 'package:mysme/core/providers/providers.dart';
+import 'package:mysme/core/providers/auth_provider.dart';
 import 'package:mysme/core/theme/app_colors.dart';
 import 'package:mysme/features/home/widgets/custom_bottom_nav.dart';
 
@@ -18,10 +17,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage>
     with TickerProviderStateMixin {
   late MotionTabBarController _tabController;
-  bool _notificationsEnabled = true;
-
-  static const _storage = FlutterSecureStorage();
-  static const _notifKey = 'mystme_notifications_enabled';
+  bool _isSavingNotifications = false;
 
   @override
   void initState() {
@@ -31,7 +27,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
       length: 3,
       vsync: this,
     );
-    _loadNotificationPref();
   }
 
   @override
@@ -40,20 +35,31 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
     super.dispose();
   }
 
-  Future<void> _loadNotificationPref() async {
-    final val = await _storage.read(key: _notifKey);
-    if (val != null && mounted) {
-      setState(() => _notificationsEnabled = val == 'true');
-    }
-  }
-
   Future<void> _saveNotificationPref(bool value) async {
-    setState(() => _notificationsEnabled = value);
-    await _storage.write(key: _notifKey, value: value.toString());
+    if (_isSavingNotifications) return;
+
+    setState(() => _isSavingNotifications = true);
+    try {
+      await ref.read(authProvider.notifier).updateNotificationPreference(value);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('Impossible de mettre à jour les notifications: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingNotifications = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -81,28 +87,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
                         icon: Icons.notifications_none_rounded,
                         label: 'Notifications',
                         trailing: Switch(
-                          value: _notificationsEnabled,
+                          value: authState.notificationsEnabled,
                           activeColor: AppColors.primaryStart,
-                          onChanged: (v) => _saveNotificationPref(v),
+                          onChanged: _isSavingNotifications
+                              ? null
+                              : (v) => _saveNotificationPref(v),
                         ),
                       ),
-                      const _TileDivider(),
-                      Consumer(builder: (context, ref, _) {
-                        final themeMode = ref.watch(themeProvider);
-                        final isDark = themeMode == ThemeMode.dark;
-                        return _SettingsTile(
-                          icon: isDark
-                              ? Icons.dark_mode_rounded
-                              : Icons.light_mode_rounded,
-                          label: 'Mode sombre',
-                          trailing: Switch(
-                            value: isDark,
-                            activeColor: AppColors.primaryStart,
-                            onChanged: (_) =>
-                                ref.read(themeProvider.notifier).toggle(),
-                          ),
-                        );
-                      }),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -146,16 +137,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
                         },
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 32),
-
-                  // ── Deconnexion button ──
-                  _DeconnexionButton(
-                    onTap: () async {
-                      await ref.read(authProvider.notifier).signOut();
-                      if (!context.mounted) return;
-                      context.go('/onboarding');
-                    },
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -290,49 +271,6 @@ class _TileDivider extends StatelessWidget {
         height: 1,
         thickness: 1,
         color: AppColors.primaryStart.withAlpha(25),
-      ),
-    );
-  }
-}
-
-/// Red-outlined Deconnexion button at the bottom.
-class _DeconnexionButton extends StatelessWidget {
-  const _DeconnexionButton({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.redAccent.withAlpha(160),
-            width: 1.5,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.logout_rounded,
-              color: Colors.redAccent.withAlpha(200),
-              size: 22,
-            ),
-            const SizedBox(width: 10),
-            Text(
-              'Deconnexion',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.redAccent.withAlpha(200),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -289,6 +289,7 @@ class ChatInputBar extends StatelessWidget {
             color: AppColors.textDisabled,
             fontSize: 15,
           ),
+          filled: false,
           contentPadding: EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 12,

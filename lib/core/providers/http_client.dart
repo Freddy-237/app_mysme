@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,10 +12,12 @@ const _kTokenKey = 'mystme_token';
 const _kUserIdKey = 'mystme_user_id';
 
 // ---------------------------------------------------------------------------
-// Timeouts
+// Timeouts & Retry
 // ---------------------------------------------------------------------------
 const _kConnectTimeout = Duration(seconds: 15);
 const _kReceiveTimeout = Duration(seconds: 15);
+const _kMaxRetries = 2;
+const _kRetryDelays = [Duration(seconds: 1), Duration(seconds: 3)];
 
 // ---------------------------------------------------------------------------
 // Base URL — configurable via --dart-define=API_BASE_URL=http://192.168.x.x:5000
@@ -53,6 +57,27 @@ class HttpClient {
       connectTimeout: _kConnectTimeout,
       receiveTimeout: _kReceiveTimeout,
       contentType: 'application/json',
+    ));
+
+    // ── Retry interceptor — retries transient network errors ─────────────
+    _dio.interceptors.add(InterceptorsWrapper(
+      onError: (DioException e, handler) async {
+        final attempt = (e.requestOptions.extra['_retryCount'] as int?) ?? 0;
+        if (_isRetryable(e) && attempt < _kMaxRetries) {
+          final delay = _kRetryDelays[attempt];
+          debugPrint(
+              '[HttpClient.retry] ${e.requestOptions.path} attempt ${attempt + 1}/$_kMaxRetries after ${delay.inSeconds}s');
+          await Future<void>.delayed(delay);
+          e.requestOptions.extra['_retryCount'] = attempt + 1;
+          try {
+            final res = await _dio.fetch(e.requestOptions);
+            return handler.resolve(res);
+          } on DioException catch (retryError) {
+            return handler.reject(retryError);
+          }
+        }
+        return handler.next(e);
+      },
     ));
 
     // ── Auth interceptor — injects JWT ───────────────────────────────────
@@ -175,6 +200,33 @@ class HttpClient {
     await _storage.write(key: _kUserIdKey, value: _userId!);
   }
 
+  /// Restore an existing account by verified email.
+  /// Step 1: request OTP (unauthenticated).
+  Future<Map<String, dynamic>> requestEmailRestore(String email) async {
+    final res = await _rawPost('/identity/email/restore/request-otp', {
+      'email': email,
+    });
+    return res as Map<String, dynamic>;
+  }
+
+  /// Restore an existing account by verified email.
+  /// Step 2: verify OTP and swap session (unauthenticated).
+  Future<void> verifyEmailRestore(String email, String code) async {
+    final res = await _rawPost('/identity/email/restore/verify-otp', {
+      'email': email,
+      'code': code,
+    });
+    _token = res['token'] as String?;
+    _userId = (res['user'] as Map<String, dynamic>)['id'] as String?;
+
+    if (_token == null || _userId == null) {
+      throw ApiException('Réponse de restauration invalide', 500);
+    }
+
+    await _storage.write(key: _kTokenKey, value: _token!);
+    await _storage.write(key: _kUserIdKey, value: _userId!);
+  }
+
   // ── HTTP verbs ─────────────────────────────────────────────────────────
   Future<dynamic> get(String path, {Map<String, String>? query}) async {
     debugPrint('[HttpClient.GET] $path query=$query');
@@ -250,6 +302,22 @@ class HttpClient {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+  /// Whether a DioException is a transient network error worth retrying.
+  static bool _isRetryable(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionError:
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return true;
+      case DioExceptionType.badResponse:
+        final code = e.response?.statusCode ?? 0;
+        return code == 502 || code == 503 || code == 504;
+      default:
+        return false;
+    }
+  }
+
   /// Unwraps a DioException into an ApiException for callers.
   ApiException _unwrap(DioException e) {
     if (e.error is ApiException) return e.error as ApiException;

@@ -29,6 +29,7 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
   StreamSubscription<Uri>? _deepLinkSub;
   String? _lastHandledUri;
   bool _socketInitialized = false;
+  SocketService? _socketService;
   final List<void Function()> _globalSocketDisposers = [];
   Timer? _catchupTimer;
 
@@ -88,7 +89,9 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
 
   Future<void> _connectGlobalSocket() async {
     _socketInitialized = true;
-    final socket = ref.read(socketServiceProvider);
+    final SocketService socket =
+        _socketService ?? ref.read(socketServiceProvider);
+    _socketService = socket;
     await socket.connect(apiBaseUrl);
 
     // Immediate sync right after socket connect.
@@ -131,7 +134,7 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
     );
   }
 
-  void _disconnectGlobalSocket() {
+  void _disconnectGlobalSocket({SocketService? socketService}) {
     _socketInitialized = false;
     _catchupTimer?.cancel();
     _catchupTimer = null;
@@ -139,7 +142,8 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
       dispose();
     }
     _globalSocketDisposers.clear();
-    ref.read(socketServiceProvider).disconnect();
+    final service = socketService ?? _socketService;
+    service?.disconnect();
   }
 
   Future<void> _setupPushDeepLink() async {

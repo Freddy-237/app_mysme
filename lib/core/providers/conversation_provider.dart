@@ -14,6 +14,7 @@ class ConversationDto {
     this.anonymousId,
     required this.status,
     this.startedAt,
+    this.expiresAt,
     this.blockedAt,
     required this.createdAt,
     this.unreadCount = 0,
@@ -30,6 +31,7 @@ class ConversationDto {
   final String? anonymousId;
   final String status; // 'active' | 'blocked' | 'expired' | 'archived'
   final DateTime? startedAt;
+  final DateTime? expiresAt;
   final DateTime? blockedAt;
   final DateTime createdAt;
   final int unreadCount;
@@ -50,12 +52,6 @@ class ConversationDto {
       return anonymousPseudo ?? 'Anonyme';
     }
     return ownerPseudo ?? 'Anonyme';
-  }
-
-  /// 7-day window from started_at.
-  DateTime? get expiresAt {
-    if (startedAt == null) return null;
-    return startedAt!.add(const Duration(days: 7));
   }
 
   Duration get remainingTime {
@@ -80,6 +76,9 @@ class ConversationDto {
       status: json['status'] as String? ?? 'active',
       startedAt: json['started_at'] != null
           ? DateTime.parse(json['started_at'] as String)
+          : null,
+      expiresAt: json['expires_at'] != null
+          ? DateTime.parse(json['expires_at'] as String)
           : null,
       blockedAt: json['blocked_at'] != null
           ? DateTime.parse(json['blocked_at'] as String)
@@ -113,6 +112,7 @@ class ConversationDto {
     String? anonymousId,
     String? status,
     DateTime? startedAt,
+    DateTime? expiresAt,
     DateTime? blockedAt,
     DateTime? createdAt,
     int? unreadCount,
@@ -129,6 +129,7 @@ class ConversationDto {
       anonymousId: anonymousId ?? this.anonymousId,
       status: status ?? this.status,
       startedAt: startedAt ?? this.startedAt,
+      expiresAt: expiresAt ?? this.expiresAt,
       blockedAt: blockedAt ?? this.blockedAt,
       createdAt: createdAt ?? this.createdAt,
       unreadCount: unreadCount ?? this.unreadCount,
@@ -152,10 +153,12 @@ class ConversationRepository {
   /// Start a conversation via invite code.
   Future<ConversationDto> startConversation(String inviteCode) async {
     final json = await _client.post(
-      '/conversation/start',
+      '/conversation/resolve-link',
       {'inviteCode': inviteCode},
     );
-    return ConversationDto.fromJson(json as Map<String, dynamic>);
+    return ConversationDto.fromJson(
+      (json as Map<String, dynamic>)['conversation'] as Map<String, dynamic>,
+    );
   }
 
   /// Get my conversations.

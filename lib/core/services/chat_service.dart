@@ -49,8 +49,17 @@ class ChatService {
     required String filename,
     String caption = '',
   }) async {
+    // Auto-reconnect if the socket dropped (Railway cold-start, network switch…)
     if (!_socket.isConnected) {
-      throw Exception('Socket déconnecté — impossible d\'envoyer le média');
+      debugPrint('[ChatService] socket disconnected — attempting reconnect…');
+      await _socket.reconnectIfNeeded();
+      // Give the socket a moment to establish the connection.
+      for (var i = 0; i < 10 && !_socket.isConnected; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      if (!_socket.isConnected) {
+        throw Exception('Socket déconnecté — impossible d\'envoyer le média');
+      }
     }
     debugPrint(
       '[ChatService] sendMediaBytes conversationId=$conversationId '

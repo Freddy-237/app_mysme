@@ -2,6 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mysme/core/providers/http_client.dart';
 import 'package:mysme/core/services/push_notification_service.dart';
 
+/// Sentinel to distinguish "not passed" from "explicitly null".
+const _absent = Object();
+
 // ---------------------------------------------------------------------------
 // Auth state
 // ---------------------------------------------------------------------------
@@ -15,6 +18,7 @@ class AuthState {
     this.bio,
     this.email,
     this.emailVerifiedAt,
+    this.notificationsEnabled = true,
     this.isLoading = false,
     this.error,
   });
@@ -25,6 +29,7 @@ class AuthState {
   final String? bio;
   final String? email;
   final DateTime? emailVerifiedAt;
+  final bool notificationsEnabled;
   final bool isLoading;
   final String? error;
 
@@ -32,22 +37,27 @@ class AuthState {
   bool get isEmailVerified => emailVerifiedAt != null;
 
   AuthState copyWith({
-    String? userId,
-    String? pseudo,
-    String? avatarSeed,
-    String? bio,
-    String? email,
-    DateTime? emailVerifiedAt,
+    Object? userId = _absent,
+    Object? pseudo = _absent,
+    Object? avatarSeed = _absent,
+    Object? bio = _absent,
+    Object? email = _absent,
+    Object? emailVerifiedAt = _absent,
+    bool? notificationsEnabled,
     bool? isLoading,
     String? error,
   }) {
     return AuthState(
-      userId: userId ?? this.userId,
-      pseudo: pseudo ?? this.pseudo,
-      avatarSeed: avatarSeed ?? this.avatarSeed,
-      bio: bio ?? this.bio,
-      email: email ?? this.email,
-      emailVerifiedAt: emailVerifiedAt ?? this.emailVerifiedAt,
+      userId: userId == _absent ? this.userId : userId as String?,
+      pseudo: pseudo == _absent ? this.pseudo : pseudo as String?,
+      avatarSeed:
+          avatarSeed == _absent ? this.avatarSeed : avatarSeed as String?,
+      bio: bio == _absent ? this.bio : bio as String?,
+      email: email == _absent ? this.email : email as String?,
+      emailVerifiedAt: emailVerifiedAt == _absent
+          ? this.emailVerifiedAt
+          : emailVerifiedAt as DateTime?,
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       isLoading: isLoading ?? this.isLoading,
       error: error,
     );
@@ -89,6 +99,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         // One single call to get full profile data.
         final me = await _client.get('/identity/me');
         final pseudo = me['pseudo'] as String?;
+        final notificationsEnabled =
+            me['notifications_enabled'] as bool? ?? true;
         state = AuthState(
           userId: me['id'] as String,
           pseudo: pseudo,
@@ -98,9 +110,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
           emailVerifiedAt: DateTime.tryParse(
             (me['email_verified_at'] as String?) ?? '',
           ),
+          notificationsEnabled: notificationsEnabled,
         );
 
-        await PushNotificationService.syncToken(_client);
+        await PushNotificationService.applyUserPreference(
+          _client,
+          enabled: notificationsEnabled,
+        );
       } else {
         state =
             state.copyWith(isLoading: false, error: 'Initialisation échouée');
@@ -115,6 +131,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final me = await _client.get('/identity/me');
       final pseudo = me['pseudo'] as String?;
+      final notificationsEnabled = me['notifications_enabled'] as bool? ?? true;
       state = state.copyWith(
         userId: me['id'] as String,
         pseudo: pseudo,
@@ -124,6 +141,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         emailVerifiedAt: DateTime.tryParse(
           (me['email_verified_at'] as String?) ?? '',
         ),
+        notificationsEnabled: notificationsEnabled,
+      );
+      await PushNotificationService.applyUserPreference(
+        _client,
+        enabled: notificationsEnabled,
       );
     } catch (_) {}
   }
@@ -144,6 +166,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(bio: (res['bio'] as String?) ?? '');
   }
 
+  /// Update the server-backed notification preference.
+  Future<void> updateNotificationPreference(bool enabled) async {
+    final res = await _client.patch('/identity/notifications', {
+      'enabled': enabled,
+    });
+    final notificationsEnabled =
+        res['notifications_enabled'] as bool? ?? enabled;
+    state = state.copyWith(notificationsEnabled: notificationsEnabled);
+    await PushNotificationService.applyUserPreference(
+      _client,
+      enabled: notificationsEnabled,
+    );
+  }
+
   /// Sign out — clear token + reset state.
   Future<void> signOut() async {
     await _client.clearSession();
@@ -160,10 +196,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return key;
   }
 
-  /// Restore session from a recovery key and refresh auth state.
+  /// Restore session from a recovery key.
+  /// Caller is responsible for calling [refreshMe] after UI is settled.
   Future<void> restoreWithRecoveryKey(String recoveryKey) async {
     await _client.restoreWithRecoveryKey(recoveryKey);
-    await refreshMe();
+  }
+
+  /// Request OTP for email-based restore (unauthenticated).
+  Future<Map<String, dynamic>> requestEmailRestore(String email) async {
+    return _client.requestEmailRestore(email);
+  }
+
+  /// Verify OTP and restore account by email (unauthenticated).
+  /// Caller is responsible for calling [refreshMe] after UI is settled.
+  Future<void> verifyEmailRestore(String email, String code) async {
+    await _client.verifyEmailRestore(email, code);
   }
 
   /// Request OTP code to link an email to this anonymous account.
@@ -173,7 +220,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     });
   }
 
-  /// Verify OTP code and persist linked email on auth state.
+  /// Verify OTP code.  Caller is responsible for calling [refreshMe]
+  /// after the UI (e.g. dialog) has been dismissed.
   Future<void> verifyEmailOtp({
     required String email,
     required String code,
@@ -182,7 +230,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       'email': email,
       'code': code,
     });
-    await refreshMe();
   }
 }
 

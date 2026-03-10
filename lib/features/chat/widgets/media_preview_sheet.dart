@@ -394,6 +394,7 @@ class _CaptionBar extends StatelessWidget {
                             color: Colors.white38,
                             fontSize: 15,
                           ),
+                          filled: false,
                           isDense: true,
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.fromLTRB(8, 10, 14, 11),
