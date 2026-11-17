@@ -6,5 +6,12 @@
 	     when the app is signed for TestFlight / the App Store. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Universal Links: proven by
+	     https://www.myst-me.com/.well-known/apple-app-site-association -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:www.myst-me.com</string>
+		<string>applinks:myst-me.com</string>
+	</array>
 </dict>
 </plist>
