@@ -1,13 +1,31 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mysme/app/router.dart';
 import 'package:mysme/core/providers/providers.dart';
-import 'package:mysme/core/services/iap_service.dart';
 import 'package:mysme/core/services/push_notification_service.dart';
+import 'package:mysme/core/services/transfer_service.dart';
+import 'package:mysme/core/utils/helpers.dart';
 import 'package:mysme/core/theme/app_theme.dart';
+
+void _appLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
+
+class _InviteResolutionResult {
+  const _InviteResolutionResult({
+    this.data,
+    this.sessionLost = false,
+  });
+
+  final Map<String, String?>? data;
+  final bool sessionLost;
+}
 
 // ---------------------------------------------------------------------------
 // Global socket manager — keeps socket connected as long as user is authed.
@@ -26,124 +44,214 @@ class MystmeApp extends ConsumerStatefulWidget {
 class _MystmeAppState extends ConsumerState<MystmeApp>
     with WidgetsBindingObserver {
   final AppLinks _appLinks = AppLinks();
+  static const _supportedLinkHosts = <String>{
+    'mysme.link',
+    'mystme-pwa.vercel.app',
+  };
   StreamSubscription<Uri>? _deepLinkSub;
   String? _lastHandledUri;
   bool _socketInitialized = false;
+  bool _socketConnecting = false;
+  int _socketConnectionAttempt = 0;
   SocketService? _socketService;
   final List<void Function()> _globalSocketDisposers = [];
-  Timer? _catchupTimer;
+
+  // PWA → app transfer: a code received before the identity is ready
+  // (cold start from a deep link, Android install referrer) waits here.
+  String? _pendingTransferCode;
+  bool _claimingTransfer = false;
+  bool _installReferrerChecked = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initDeepLinks();
-    // Initialize In-App Purchases.
-    ref.read(iapServiceProvider).init();
-    // Load offline message queue from local storage.
-    ref.read(offlineQueueProvider).load();
+    // Load offline message queue from local storage and prune stale items.
+    unawaited(() async {
+      final queue = ref.read(offlineQueueProvider);
+      await queue.load();
+      await queue.pruneOld();
+    }());
     // Wire push notification tap → navigate to chat.
     _setupPushDeepLink();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshSessionOnResume());
+      unawaited(_claimPendingTransfer());
+    }
     if (state == AppLifecycleState.resumed && _socketInitialized) {
-      // Reconnect socket if needed and refresh conversations.
+      // Reconnect socket if needed and refresh first page once.
       final socket = ref.read(socketServiceProvider);
       socket.reconnectIfNeeded();
       ref.read(conversationProvider.notifier).fetchAllSilently();
-      _startCatchupRefreshWindow();
     }
   }
 
-  /// Short burst of silent refreshes after reconnect/resume.
-  /// This bridges cases where the backend emitted while this device socket
-  /// was offline (`socketsInRoom=0`).
-  void _startCatchupRefreshWindow() {
-    _catchupTimer?.cancel();
-    var ticks = 0;
-    _catchupTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      ref.read(conversationProvider.notifier).fetchAllSilently();
-      ticks += 1;
-      if (ticks >= 3) {
-        timer.cancel(); // ~30s catch-up window
-      }
-    });
+  /// Keep the 30-day token sliding for active users and finish hydrating the
+  /// profile if the app was started offline.
+  Future<void> _refreshSessionOnResume() async {
+    final auth = ref.read(authProvider);
+    if (!auth.isAuthenticated) return;
+    await ref.read(httpClientProvider).refreshSessionToken();
+    if (auth.pseudo == null) {
+      await ref.read(authProvider.notifier).refreshMe();
+    }
   }
 
   // ── Global socket: connect once auth is ready ─────────────────────────────
 
   /// Called from [build] via ref.listen so we react to auth state changes.
   void _onAuthChanged(AuthState? prev, AuthState next) {
-    if (next.isAuthenticated && !_socketInitialized) {
-      _connectGlobalSocket();
-    } else if (!next.isAuthenticated && _socketInitialized) {
+    if (next.isAuthenticated && !next.isLoading) {
+      unawaited(_checkInstallReferrer());
+      unawaited(_claimPendingTransfer());
+    }
+    // Session rejected by the server while the app was in use.
+    if (next.sessionLost && !(prev?.sessionLost ?? false)) {
+      appRouter.go('/session-recovery');
+    }
+    if (next.isAuthenticated && !_socketInitialized && !_socketConnecting) {
+      unawaited(_connectGlobalSocket());
+    } else if (!next.isAuthenticated &&
+        (_socketInitialized || _socketConnecting)) {
       _disconnectGlobalSocket();
     }
   }
 
   Future<void> _connectGlobalSocket() async {
-    _socketInitialized = true;
+    if (_socketInitialized || _socketConnecting) return;
+
+    _socketConnecting = true;
+    final attempt = ++_socketConnectionAttempt;
     final SocketService socket =
         _socketService ?? ref.read(socketServiceProvider);
     _socketService = socket;
-    await socket.connect(apiBaseUrl);
+    try {
+      await socket.connect(apiBaseUrl);
+      final isStillCurrent = mounted &&
+          attempt == _socketConnectionAttempt &&
+          ref.read(authProvider).isAuthenticated;
+      if (!isStillCurrent) {
+        socket.disconnect();
+        return;
+      }
 
-    // Immediate sync right after socket connect.
-    ref.read(conversationProvider.notifier).fetchAllSilently();
-    _startCatchupRefreshWindow();
+      _socketInitialized = true;
 
-    // Listen for new conversations — refresh the conversations list.
-    _globalSocketDisposers.add(
-      socket.onNewConversation((_) {
-        ref.read(conversationProvider.notifier).fetchAllSilently();
-      }),
-    );
+      // Immediate sync right after socket connect.
+      unawaited(ref.read(conversationProvider.notifier).fetchAllSilently());
 
-    // Listen for new messages — update conversations list preview/unread.
-    _globalSocketDisposers.add(
-      socket.onNewMessage((data) {
-        final conversationId =
-            (data['conversation_id'] ?? data['conversationId'] ?? '') as String;
-        if (conversationId.isEmpty) return;
-
-        final senderId =
-            (data['sender_id'] ?? data['senderId'] ?? '') as String;
-        final content = (data['content'] ?? '') as String;
-        final me = ref.read(authProvider).userId;
-        final notifier = ref.read(conversationProvider.notifier);
-        final known = ref.read(conversationProvider).conversations.any(
-              (c) => c.id == conversationId,
-            );
-
-        if (known) {
-          notifier.updateLastMessage(conversationId, content, senderId);
-          if (senderId != me) {
-            notifier.incrementUnread(conversationId);
+      // Listen for new conversations — refresh only the emitted conversation.
+      _globalSocketDisposers.add(
+        socket.onNewConversation((data) {
+          final conversationId =
+              (data['id'] ?? data['conversation_id'] ?? '') as String;
+          final notifier = ref.read(conversationProvider.notifier);
+          if (conversationId.isEmpty) {
+            unawaited(notifier.fetchAllSilently());
+            return;
           }
-        } else {
-          // Unknown conversation — fetch to discover it.
-          notifier.fetchAllSilently();
-        }
-      }),
-    );
+          unawaited(notifier.refreshOne(conversationId));
+        }),
+      );
+
+      // Listen for new messages — update conversations list preview/unread.
+      _globalSocketDisposers.add(
+        socket.onNewMessage((data) {
+          final conversationId = (data['conversation_id'] ??
+              data['conversationId'] ??
+              '') as String;
+          if (conversationId.isEmpty) return;
+
+          final senderId =
+              (data['sender_id'] ?? data['senderId'] ?? '') as String;
+          final content = (data['content'] ?? '') as String;
+          final me = ref.read(authProvider).userId;
+          final notifier = ref.read(conversationProvider.notifier);
+          final known = ref.read(conversationProvider).conversations.any(
+                (c) => c.id == conversationId,
+              );
+
+          if (known) {
+            notifier.updateLastMessage(conversationId, content, senderId);
+            if (senderId != me) {
+              notifier.incrementUnread(conversationId);
+            }
+          } else {
+            unawaited(notifier.refreshOne(conversationId));
+          }
+        }),
+      );
+    } catch (error) {
+      _appLog('[MystmeApp._connectGlobalSocket] ERROR: $error');
+      socket.disconnect();
+    } finally {
+      if (attempt == _socketConnectionAttempt) {
+        _socketConnecting = false;
+      }
+    }
   }
 
   void _disconnectGlobalSocket({SocketService? socketService}) {
+    _socketConnectionAttempt++;
     _socketInitialized = false;
-    _catchupTimer?.cancel();
-    _catchupTimer = null;
+    _socketConnecting = false;
     for (final dispose in _globalSocketDisposers) {
       dispose();
     }
     _globalSocketDisposers.clear();
     final service = socketService ?? _socketService;
     service?.disconnect();
+  }
+
+  /// Android: pick up the transfer code the PWA put in the Play Store link.
+  Future<void> _checkInstallReferrer() async {
+    if (_installReferrerChecked) return;
+    _installReferrerChecked = true;
+    final code =
+        await ref.read(transferServiceProvider).readInstallReferrerCodeOnce();
+    if (code != null) {
+      _pendingTransferCode = code;
+      await _claimPendingTransfer();
+    }
+  }
+
+  /// Claims the pending transfer once an app identity exists.
+  Future<void> _claimPendingTransfer() async {
+    final code = _pendingTransferCode;
+    if (code == null || _claimingTransfer) return;
+    final auth = ref.read(authProvider);
+    if (!auth.isAuthenticated || auth.isLoading) return;
+
+    _claimingTransfer = true;
+    try {
+      final result = await ref.read(transferServiceProvider).claim(code);
+      _pendingTransferCode = null;
+      await ref.read(conversationProvider.notifier).fetchAllSilently();
+      final count = result.conversationIds.length;
+      _showDeepLinkError(count <= 1
+          ? 'Ta conversation web est maintenant dans l\'app.'
+          : 'Tes $count conversations web sont maintenant dans l\'app.');
+    } catch (error) {
+      _appLog('[MystmeApp._claimPendingTransfer] ERROR: $error');
+      final status = error is ApiException ? error.statusCode : 0;
+      final rejectedByServer = status >= 400 && status < 500;
+      if (!rejectedByServer) {
+        return; // offline / server down: keep the code, retry on resume
+      }
+      _pendingTransferCode = null; // invalid / used / expired: do not loop
+      _showDeepLinkError(Helpers.friendlyErrorMessage(
+        error,
+        fallback:
+            'Impossible de récupérer ta conversation web. Utilise le code depuis ton profil.',
+      ));
+    } finally {
+      _claimingTransfer = false;
+    }
   }
 
   Future<void> _setupPushDeepLink() async {
@@ -163,11 +271,13 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
       if (initialUri != null) {
         _handleDeepLink(initialUri);
       }
-    } catch (_) {}
+    } catch (e) {
+      _appLog('[MystmeApp._initDeepLinks] ERROR: $e');
+    }
 
     _deepLinkSub = _appLinks.uriLinkStream.listen(
       (uri) => _handleDeepLink(uri),
-      onError: (_) {},
+      onError: (error) => _appLog('[MystmeApp.uriLinkStream] ERROR: $error'),
     );
   }
 
@@ -178,6 +288,18 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
     String? conversationId;
     String? pseudo;
     String? target;
+    var resolutionFailed = false;
+    var sessionRecoveryRequired = false;
+
+    // mystme://transfer?code=ABCD-2345 — opened from the PWA.
+    if (uri.scheme == 'mystme' && uri.host == 'transfer') {
+      final code = TransferService.extractCode(uri.queryParameters['code']);
+      if (code != null) {
+        _pendingTransferCode = code;
+        await _claimPendingTransfer();
+      }
+      return;
+    }
 
     if (uri.scheme == 'mystme') {
       if (uri.host == 'chat' && uri.pathSegments.isNotEmpty) {
@@ -186,17 +308,32 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
       pseudo = uri.queryParameters['pseudo'];
       target = uri.queryParameters['target'];
     } else if ((uri.scheme == 'https' || uri.scheme == 'http') &&
-        uri.host == 'mysme.link' &&
+        _supportedLinkHosts.contains(uri.host) &&
         uri.pathSegments.length >= 2 &&
         uri.pathSegments.first == 'c') {
       final inviteCode = uri.pathSegments[1];
       final resolved = await _resolveInviteCode(inviteCode);
-      conversationId = resolved['conversationId'];
-      pseudo = resolved['pseudo'] ?? uri.queryParameters['pseudo'];
-      target = resolved['target'] ?? uri.queryParameters['name'];
+      if (resolved.sessionLost) {
+        sessionRecoveryRequired = true;
+      } else if (resolved.data == null) {
+        resolutionFailed = true;
+      } else {
+        conversationId = resolved.data!['conversationId'];
+        pseudo = resolved.data!['pseudo'] ?? uri.queryParameters['pseudo'];
+        target = resolved.data!['target'] ?? uri.queryParameters['name'];
+      }
     }
 
-    if (conversationId == null || conversationId.isEmpty) return;
+    if (conversationId == null || conversationId.isEmpty) {
+      if (sessionRecoveryRequired) {
+        appRouter.go('/session-recovery');
+        return;
+      }
+      if (resolutionFailed) {
+        _showDeepLinkError('Lien MystMe invalide ou expiré');
+      }
+      return;
+    }
 
     _lastHandledUri = uriString;
     final query = <String, String>{
@@ -209,8 +346,13 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
     appRouter.go('/deeplink-welcome?$qs');
   }
 
-  Future<Map<String, String?>> _resolveInviteCode(String inviteCode) async {
+  Future<_InviteResolutionResult> _resolveInviteCode(String inviteCode) async {
     try {
+      final auth = ref.read(authProvider);
+      if (auth.sessionLost) {
+        return const _InviteResolutionResult(sessionLost: true);
+      }
+
       final client = ref.read(httpClientProvider);
       if (!client.isReady) {
         await client.init();
@@ -220,24 +362,37 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
         'inviteCode': inviteCode,
       });
 
-      return {
-        'conversationId': res['conversationId'] as String?,
-        'pseudo': res['anonymousPseudo'] as String?,
-        'target': res['targetPseudo'] as String?,
-      };
-    } catch (_) {
-      return {
-        'conversationId': null,
-        'pseudo': null,
-        'target': null,
-      };
+      return _InviteResolutionResult(
+        data: {
+          'conversationId': res['conversationId'] as String?,
+          'pseudo': res['anonymousPseudo'] as String?,
+          'target': res['targetPseudo'] as String?,
+        },
+      );
+    } on SessionLostException catch (error) {
+      _appLog('[MystmeApp._resolveInviteCode] session lost: $error');
+      return const _InviteResolutionResult(sessionLost: true);
+    } catch (error) {
+      _appLog('[MystmeApp._resolveInviteCode] resolution failed: $error');
+      return const _InviteResolutionResult();
     }
+  }
+
+  void _showDeepLinkError(String message) {
+    final context = appRouter.routerDelegate.navigatorKey.currentContext;
+    final messenger =
+        context == null ? null : ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _catchupTimer?.cancel();
     _deepLinkSub?.cancel();
     _disconnectGlobalSocket();
     super.dispose();

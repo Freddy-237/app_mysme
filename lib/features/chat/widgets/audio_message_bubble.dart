@@ -1,8 +1,15 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:mysme/core/theme/app_colors.dart';
+
+void _audioBubbleLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 /// Inline audio player displayed inside a chat bubble.
 class AudioMessageBubble extends StatefulWidget {
@@ -65,7 +72,8 @@ class _AudioMessageBubbleState extends State<AudioMessageBubble>
         }
         setState(() {});
       });
-    } catch (_) {
+    } catch (e) {
+      _audioBubbleLog('[AudioMessageBubble._initAudio] ERROR: $e');
       if (!mounted) return;
       setState(() => _hasError = true);
     }

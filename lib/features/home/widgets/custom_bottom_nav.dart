@@ -11,10 +11,12 @@ MotionTabBar buildMotionTabBar({
   required int initialIndex,
   required void Function(int) onTap,
 }) {
+  const labels = ['ACCUEIL', 'DISCUSSIONS', 'REGLAGES'];
+
   return MotionTabBar(
     controller: controller,
-    initialSelectedTab: ['HOME', 'DISCUSSIONS', 'SETTINGS'][initialIndex],
-    labels: const ['HOME', 'DISCUSSIONS', 'SETTINGS'],
+    initialSelectedTab: labels[initialIndex],
+    labels: labels,
     icons: const [
       Icons.home_rounded,
       Icons.chat_bubble_outline_rounded,

@@ -1,9 +1,14 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:mysme/core/theme/app_colors.dart';
+
+void _seedAvatarLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 /// DiceBear avatar style used across the app.
 /// Change this value to switch all avatars at once.
@@ -74,7 +79,9 @@ class _SeedAvatarState extends State<SeedAvatar> {
           _loading = false;
         });
       }
-    } catch (_) {
+    } catch (error) {
+      _seedAvatarLog(
+          '[SeedAvatar] Avatar load failed for ${widget.seed}: $error');
       if (mounted) {
         setState(() {
           _loading = false;

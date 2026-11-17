@@ -42,9 +42,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <data
-                    android:scheme="mystme"
-                    android:host="chat" />
+                <!-- Any mystme:// link: chat, transfer (PWA → app), home… -->
+                <data android:scheme="mystme" />
             </intent-filter>
 
             <intent-filter>
@@ -56,6 +55,18 @@
                 <data
                     android:scheme="https"
                     android:host="mysme.link"
+                    android:pathPrefix="/c" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="https"
+                    android:host="mystme-pwa.vercel.app"
                     android:pathPrefix="/c" />
             </intent-filter>
         </activity>
@@ -70,6 +81,11 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.snapchat.android" />
+    </queries>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

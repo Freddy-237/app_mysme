@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/providers/providers.dart';
 
+part 'splash_screen_sections.dart';
+
 /// Splash screen — bootstraps auth, then routes to home or onboarding.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -45,7 +47,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       final storage = ref.read(secureStorageProvider);
       final onboardingDone =
           await storage.read(key: 'mystme_onboarding_complete');
-      final existingToken = await storage.read(key: 'mystme_token');
 
       // Init auth (loads or creates identity via backend).
       // Short timeout so the splash never hangs when backend is down.
@@ -60,9 +61,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       if (!mounted) return;
 
       final auth = ref.read(authProvider);
-      // Returning user who already completed onboarding → go home.
-      if (onboardingDone == 'true' &&
-          (auth.isAuthenticated || existingToken != null)) {
+      if (auth.sessionLost) {
+        _goSafely('/session-recovery');
+        return;
+      }
+
+      // Returning user who already completed onboarding. A stored session
+      // counts even if the server could not be reached (offline start):
+      // sending them to onboarding would create a NEW identity.
+      final hasAccount =
+          auth.isAuthenticated || ref.read(httpClientProvider).hasStoredSession;
+      if (onboardingDone == 'true' && hasAccount) {
         _goSafely('/home');
       } else {
         _goSafely('/onboarding');
@@ -73,7 +82,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       // If onboarding was already completed, go home even on error.
       final storage = ref.read(secureStorageProvider);
       final done = await storage.read(key: 'mystme_onboarding_complete');
-      _goSafely(done == 'true' ? '/home' : '/onboarding');
+      final auth = ref.read(authProvider);
+      final hasAccount =
+          auth.isAuthenticated || ref.read(httpClientProvider).hasStoredSession;
+      _goSafely(done == 'true' && hasAccount ? '/home' : '/onboarding');
     }
   }
 
@@ -87,52 +99,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Center(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Logo placeholder (purple circle + mask icon)
-              Container(
-                width: 120,
-                height: 120,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF5A2EBE), Color(0xFF9B6DFF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-                child: const Icon(
-                  Icons.masks_outlined,
-                  color: Colors.white,
-                  size: 56,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'MystMe',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF5A2EBE),
-                ),
-              ),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9B6DFF)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      body: _buildBody(),
     );
   }
 }

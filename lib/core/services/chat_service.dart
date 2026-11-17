@@ -4,6 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mysme/core/providers/providers.dart';
 
+void _chatServiceLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
+
 /// Business-layer chat service.
 ///
 /// Primary transport: **Socket.IO**.
@@ -51,20 +57,13 @@ class ChatService {
   }) async {
     // Auto-reconnect if the socket dropped (Railway cold-start, network switch…)
     if (!_socket.isConnected) {
-      debugPrint('[ChatService] socket disconnected — attempting reconnect…');
+      _chatServiceLog(
+          '[ChatService] socket disconnected — attempting reconnect');
       await _socket.reconnectIfNeeded();
-      // Give the socket a moment to establish the connection.
-      for (var i = 0; i < 10 && !_socket.isConnected; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-      }
       if (!_socket.isConnected) {
         throw Exception('Socket déconnecté — impossible d\'envoyer le média');
       }
     }
-    debugPrint(
-      '[ChatService] sendMediaBytes conversationId=$conversationId '
-      'mediaType=$mediaType filename=$filename bytes=${bytes.length}',
-    );
     final result = await _socket.sendMediaBytes(
       conversationId: conversationId,
       bytes: bytes,
@@ -72,9 +71,9 @@ class ChatService {
       filename: filename,
       caption: caption,
     );
-    debugPrint('[ChatService] sendMediaBytes ack=$result');
     if (result == null || result['ok'] != true) {
       final err = (result?['error'] as String?) ?? 'Erreur envoi media';
+      _chatServiceLog('[ChatService] sendMediaBytes failed: $err');
       throw Exception(err);
     }
     final msgData = result['message'] as Map<String, dynamic>?;
@@ -98,10 +97,6 @@ class ChatService {
     }
     final bytes = await file.readAsBytes();
     final filename = filePath.split(RegExp(r'[\\/]')).last;
-    debugPrint(
-      '[ChatService] sendMediaFile filePath=$filePath '
-      'bytes=${bytes.length} mediaType=$mediaType',
-    );
     return sendMediaBytes(
       conversationId: conversationId,
       bytes: bytes,

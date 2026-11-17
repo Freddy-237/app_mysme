@@ -1,6 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mysme/core/providers/http_client.dart';
+import 'package:mysme/core/utils/helpers.dart';
+
+void _linkLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 const _defaultPwaBase = 'https://mystme-pwa.vercel.app';
 
@@ -31,7 +38,6 @@ class LinkModel {
   final DateTime createdAt;
 
   factory LinkModel.fromJson(Map<String, dynamic> json) {
-    debugPrint('[LinkModel.fromJson] raw json: $json');
     final model = LinkModel(
       id: json['id'] as String,
       code: json['code'] as String,
@@ -39,8 +45,7 @@ class LinkModel {
       isActive: json['is_active'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
-    debugPrint(
-        '[LinkModel.fromJson] parsed → id=${model.id}, code=${model.code}, isActive=${model.isActive}');
+    _linkLog('[LinkModel.fromJson] id=${model.id} active=${model.isActive}');
     return model;
   }
 
@@ -57,7 +62,7 @@ class LinkModel {
   String shareUrl(String name) {
     final encoded = Uri.encodeComponent(name);
     final url = '$_pwaBase/c/$code?name=$encoded';
-    debugPrint('[LinkModel.shareUrl] name="$name" → $url');
+    _linkLog('[LinkModel.shareUrl] code=$code');
     return url;
   }
 }
@@ -72,19 +77,18 @@ class LinkRepository {
 
   /// Create a new shareable link.
   Future<LinkModel> createLink() async {
-    debugPrint('[LinkRepository.createLink] POST /link');
+    _linkLog('[LinkRepository.createLink] POST /link');
     final json = await _client.post('/link', {});
-    debugPrint('[LinkRepository.createLink] response: $json');
     return LinkModel.fromJson(json as Map<String, dynamic>);
   }
 
   /// Get all my links.
   Future<List<LinkModel>> getMyLinks() async {
-    debugPrint('[LinkRepository.getMyLinks] GET /link/mine');
+    _linkLog('[LinkRepository.getMyLinks] GET /link/mine');
     final json = await _client.get('/link/mine');
-    debugPrint(
-        '[LinkRepository.getMyLinks] response count: ${(json as List).length}');
-    return json.map((e) => LinkModel.fromJson(e)).toList();
+    final items = json as List;
+    _linkLog('[LinkRepository.getMyLinks] count=${items.length}');
+    return items.map((e) => LinkModel.fromJson(e)).toList();
   }
 
   /// Resolve an invite code (public endpoint).
@@ -117,11 +121,12 @@ class LinkState {
 
   /// The first active link, if any.
   LinkModel? get activeLink {
-    try {
-      return links.firstWhere((l) => l.isActive);
-    } catch (_) {
-      return null;
+    for (final link in links) {
+      if (link.isActive) {
+        return link;
+      }
     }
+    return null;
   }
 
   LinkState copyWith({
@@ -148,57 +153,70 @@ class LinkNotifier extends StateNotifier<LinkState> {
 
   /// Fetch my links from the backend.
   Future<void> fetchMyLinks() async {
-    debugPrint('[LinkNotifier.fetchMyLinks] START');
+    _linkLog('[LinkNotifier.fetchMyLinks] START');
     state = state.copyWith(isLoading: true, error: null);
     try {
       final links = await _repo.getMyLinks();
-      debugPrint(
-          '[LinkNotifier.fetchMyLinks] OK — ${links.length} links, active=${links.where((l) => l.isActive).length}');
+      _linkLog('[LinkNotifier.fetchMyLinks] OK count=${links.length}');
       state = LinkState(links: links);
     } catch (e, st) {
-      debugPrint('[LinkNotifier.fetchMyLinks] ERROR: $e\n$st');
-      state = state.copyWith(isLoading: false, error: e.toString());
+      _linkLog('[LinkNotifier.fetchMyLinks] ERROR: $e');
+      if (kDebugMode) {
+        debugPrintStack(stackTrace: st);
+      }
+      state = state.copyWith(
+        isLoading: false,
+        error: Helpers.friendlyErrorMessage(
+          e,
+          fallback: 'Impossible de charger ton lien pour le moment.',
+        ),
+      );
     }
   }
 
   /// Get or create an active link.
   Future<LinkModel> getOrCreateLink() async {
-    debugPrint(
-        '[LinkNotifier.getOrCreateLink] START — cached activeLink=${state.activeLink?.code}');
+    _linkLog(
+        '[LinkNotifier.getOrCreateLink] START cached=${state.activeLink?.code != null}');
     if (state.activeLink != null) {
-      debugPrint(
-          '[LinkNotifier.getOrCreateLink] returning cached link: ${state.activeLink!.code}');
+      _linkLog('[LinkNotifier.getOrCreateLink] return cached');
       return state.activeLink!;
     }
 
     state = state.copyWith(isLoading: true, error: null);
     try {
       // Try fetching existing links first
-      debugPrint('[LinkNotifier.getOrCreateLink] fetching existing links…');
+      _linkLog('[LinkNotifier.getOrCreateLink] fetching existing');
       final links = await _repo.getMyLinks();
-      debugPrint(
-          '[LinkNotifier.getOrCreateLink] fetched ${links.length} links');
+      _linkLog('[LinkNotifier.getOrCreateLink] fetched=${links.length}');
       if (links.isNotEmpty) {
         state = LinkState(links: links);
         final active = state.activeLink;
         if (active != null) {
-          debugPrint(
-              '[LinkNotifier.getOrCreateLink] found active link: ${active.code}');
+          _linkLog('[LinkNotifier.getOrCreateLink] found active');
           return active;
         }
-        debugPrint(
-            '[LinkNotifier.getOrCreateLink] no active link among ${links.length} fetched');
+        _linkLog('[LinkNotifier.getOrCreateLink] no active link found');
       }
 
       // Create a new one
-      debugPrint('[LinkNotifier.getOrCreateLink] creating new link…');
+      _linkLog('[LinkNotifier.getOrCreateLink] creating new');
       final link = await _repo.createLink();
-      debugPrint('[LinkNotifier.getOrCreateLink] created link: ${link.code}');
+      _linkLog('[LinkNotifier.getOrCreateLink] created');
       state = LinkState(links: [...state.links, link]);
       return link;
     } catch (e, st) {
-      debugPrint('[LinkNotifier.getOrCreateLink] ERROR: $e\n$st');
-      state = state.copyWith(isLoading: false, error: e.toString());
+      _linkLog('[LinkNotifier.getOrCreateLink] ERROR: $e');
+      if (kDebugMode) {
+        debugPrintStack(stackTrace: st);
+      }
+      state = state.copyWith(
+        isLoading: false,
+        error: Helpers.friendlyErrorMessage(
+          e,
+          fallback: 'Impossible de générer ton lien pour le moment.',
+        ),
+      );
       rethrow;
     }
   }
@@ -211,7 +229,12 @@ class LinkNotifier extends StateNotifier<LinkState> {
         links: state.links.where((l) => l.id != linkId).toList(),
       );
     } catch (e) {
-      state = state.copyWith(error: e.toString());
+      state = state.copyWith(
+        error: Helpers.friendlyErrorMessage(
+          e,
+          fallback: 'Impossible de mettre à jour le lien pour le moment.',
+        ),
+      );
     }
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mysme/core/theme/app_colors.dart';
+import 'package:mysme/shared/widgets/themed_icon_button.dart';
 
 /// Gradient header bar with back button, avatar, name, typing indicator,
 /// countdown, and menu button — extracted from [ChatScreen].
@@ -9,24 +10,68 @@ class ChatHeader extends StatelessWidget {
     required this.topPadding,
     required this.peerPseudo,
     required this.identityRevealed,
+    required this.trustLevel,
     required this.isTyping,
     required this.isOnline,
     required this.formattedRemaining,
     required this.onBack,
+    required this.onTrustTap,
     required this.onMenu,
   });
 
   final double topPadding;
   final String peerPseudo;
   final bool identityRevealed;
+  final String? trustLevel;
   final bool isTyping;
   final bool isOnline;
   final String formattedRemaining;
   final VoidCallback onBack;
+  final VoidCallback onTrustTap;
   final VoidCallback onMenu;
+
+  static String trustLabel(String? level) {
+    switch (level) {
+      case 'new':
+        return 'Nouveau';
+      case 'known':
+        return 'Connu';
+      case 'trusted':
+        return 'Fiable';
+      case 'revealed':
+        return 'Révélé';
+      case 'partial':
+        return 'Partiel';
+      case 'anonymous':
+      default:
+        return 'Anonyme';
+    }
+  }
+
+  static Color trustColor(String? level) {
+    switch (level) {
+      case 'known':
+      case 'partial':
+        return const Color(0xFFFFC857);
+      case 'trusted':
+        return const Color(0xFF36C690);
+      case 'revealed':
+        return const Color(0xFF7EE081);
+      case 'new':
+      case 'anonymous':
+      default:
+        return Colors.white.withOpacity(0.28);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final secondaryLabel = isTyping
+        ? 'en train d\'écrire...'
+        : isOnline
+            ? 'En ligne'
+            : 'Hors ligne';
+
     return Container(
       padding: EdgeInsets.only(
         top: topPadding + 10,
@@ -41,123 +86,149 @@ class ChatHeader extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Back
-          GestureDetector(
-            onTap: onBack,
-            child: const Icon(
-              Icons.arrow_back_ios_new,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 10),
-
-          // Avatar with online indicator
-          Stack(
+          Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.2),
+              GestureDetector(
+                onTap: onBack,
+                child: Icon(
+                  adaptiveBackIcon(context),
+                  color: Colors.white,
+                  size: 20,
                 ),
-                child: const Icon(Icons.person, color: Colors.white, size: 28),
               ),
-              if (isOnline)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 12,
-                    height: 12,
+              const SizedBox(width: 10),
+              Stack(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50),
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppColors.deepPurple,
-                        width: 2,
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: isOnline
+                            ? const Color(0xFF4CAF50)
+                            : Colors.white.withOpacity(0.4),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.deepPurple,
+                          width: 2,
+                        ),
                       ),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      identityRevealed ? 'Identité révélée' : peerPseudo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      secondaryLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(isTyping ? 0.95 : 0.78),
+                        fontSize: 12.5,
+                        fontWeight:
+                            isTyping ? FontWeight.w600 : FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              IconButton(
+                onPressed: onMenu,
+                icon:
+                    const Icon(Icons.more_vert, color: Colors.white, size: 24),
+              ),
             ],
           ),
-          const SizedBox(width: 12),
-
-          // Name + typing indicator
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  identityRevealed ? 'Identité révélée' : peerPseudo,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              GestureDetector(
+                onTap: onTrustTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: trustColor(trustLevel),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    trustLabel(trustLevel),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                if (isTyping)
-                  Text(
-                    'en train d\'écrire...',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 12,
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.access_time_rounded,
+                      color: Colors.white.withOpacity(0.92),
+                      size: 16,
                     ),
-                  )
-                else
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: isOnline
-                              ? const Color(0xFF4CAF50)
-                              : Colors.white.withOpacity(0.4),
-                          shape: BoxShape.circle,
-                        ),
+                    const SizedBox(width: 6),
+                    Text(
+                      formattedRemaining,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.92),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isOnline ? 'En ligne' : 'Hors ligne',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-
-          // Timer
-          Icon(
-            Icons.access_time_rounded,
-            color: Colors.white.withOpacity(0.9),
-            size: 20,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            formattedRemaining,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 4),
-
-          // More
-          IconButton(
-            onPressed: onMenu,
-            icon: const Icon(Icons.more_vert, color: Colors.white, size: 24),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

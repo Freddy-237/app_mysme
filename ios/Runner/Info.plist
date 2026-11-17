@@ -58,6 +58,16 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>whatsapp</string>
+		<string>instagram</string>
+		<string>snapchat</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Nous utilisons le micro pour envoyer des messages audio anonymes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
