@@ -66,6 +66,22 @@
 
                 <data
                     android:scheme="https"
+                    android:host="www.myst-me.com"
+                    android:pathPrefix="/c" />
+                <data
+                    android:scheme="https"
+                    android:host="myst-me.com"
+                    android:pathPrefix="/c" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="https"
                     android:host="mystme-pwa.vercel.app"
                     android:pathPrefix="/c" />
             </intent-filter>

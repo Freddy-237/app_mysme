@@ -35,12 +35,12 @@ const _kRetryDelays = [Duration(seconds: 1), Duration(seconds: 3)];
 //
 // Priority:
 //   1. Compile-time override  (flutter run --dart-define=API_BASE_URL=…)
-//   2. Fallback → production Railway API
+//   2. Fallback → production API (api.myst-me.com, hosted on Railway)
 // ---------------------------------------------------------------------------
 String get _baseUrl {
   const override = String.fromEnvironment('API_BASE_URL');
   if (override.isNotEmpty) return override;
-  return 'https://api-mystme-production.up.railway.app';
+  return 'https://api.myst-me.com';
 }
 
 /// Expose for socket_service.dart to reuse the same base URL.

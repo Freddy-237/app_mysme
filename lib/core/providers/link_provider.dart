@@ -9,7 +9,7 @@ void _linkLog(String message) {
   }
 }
 
-const _defaultPwaBase = 'https://mystme-pwa.vercel.app';
+const _defaultPwaBase = 'https://www.myst-me.com';
 
 // Optional override:
 // flutter run --dart-define=PWA_BASE_URL=https://your-domain.com
@@ -53,7 +53,7 @@ class LinkModel {
   String get displayLink {
     final host = Uri.tryParse(_pwaBase)?.host;
     if (host == null || host.isEmpty) {
-      return 'mystme-pwa.vercel.app/c/$code';
+      return 'www.myst-me.com/c/$code';
     }
     return '$host/c/$code';
   }

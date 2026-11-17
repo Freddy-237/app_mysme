@@ -46,6 +46,9 @@ class _MystmeAppState extends ConsumerState<MystmeApp>
   final AppLinks _appLinks = AppLinks();
   static const _supportedLinkHosts = <String>{
     'mysme.link',
+    'www.myst-me.com',
+    'myst-me.com',
+    // Links shared before the move to myst-me.com keep working.
     'mystme-pwa.vercel.app',
   };
   StreamSubscription<Uri>? _deepLinkSub;
