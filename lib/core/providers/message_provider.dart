@@ -1,9 +1,14 @@
-import 'dart:io';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mysme/core/providers/http_client.dart';
+import 'package:mysme/core/utils/helpers.dart';
+
+void _messageRepoLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Message DTO (mirrors backend row)
@@ -130,14 +135,6 @@ class MessageRepository {
     void Function(int sent, int total)? onProgress,
   }) async {
     final fileName = filePath.split(RegExp(r'[\\/]')).last;
-    final file = File(filePath);
-    final exists = await file.exists();
-    final fileSize = exists ? await file.length() : -1;
-    debugPrint(
-      '[MessageRepo._sendMedia] start endpoint=$endpoint field=$fieldName '
-      'conversationId=$conversationId fileName=$fileName exists=$exists '
-      'size=$fileSize path=$filePath',
-    );
     final formData = FormData.fromMap({
       'conversationId': conversationId,
       fieldName: await MultipartFile.fromFile(filePath, filename: fileName),
@@ -149,21 +146,16 @@ class MessageRepository {
         data: formData,
         options: Options(receiveTimeout: const Duration(seconds: 120)),
         onSendProgress: (sent, total) {
-          debugPrint(
-            '[MessageRepo._sendMedia] progress endpoint=$endpoint '
-            'sent=$sent total=$total',
-          );
           onProgress?.call(sent, total);
         },
       );
-      debugPrint(
-        '[MessageRepo._sendMedia] success endpoint=$endpoint '
-        'status=${res.statusCode} data=${res.data}',
-      );
       return MessageDto.fromJson(res.data as Map<String, dynamic>);
     } catch (e, st) {
-      debugPrint('[MessageRepo._sendMedia] ERROR endpoint=$endpoint error=$e');
-      debugPrint('$st');
+      _messageRepoLog(
+          '[MessageRepo._sendMedia] ERROR endpoint=$endpoint error=$e');
+      if (kDebugMode) {
+        debugPrintStack(stackTrace: st);
+      }
       rethrow;
     }
   }
@@ -327,7 +319,13 @@ class MessageNotifier extends StateNotifier<MessagesState> {
       );
       state = MessagesState(messages: msgs);
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(
+        isLoading: false,
+        error: Helpers.friendlyErrorMessage(
+          e,
+          fallback: 'Impossible de charger les messages pour le moment.',
+        ),
+      );
     }
   }
 
@@ -339,7 +337,9 @@ class MessageNotifier extends StateNotifier<MessagesState> {
           (msgs.isNotEmpty && msgs.last.id != state.messages.lastOrNull?.id)) {
         state = state.copyWith(messages: msgs);
       }
-    } catch (_) {}
+    } catch (error) {
+      _messageRepoLog('[MessageNotifier.poll] refresh failed: $error');
+    }
   }
 
   /// Send a message.
@@ -351,7 +351,13 @@ class MessageNotifier extends StateNotifier<MessagesState> {
         messages: [...state.messages, msg],
       );
     } catch (e) {
-      state = state.copyWith(isSending: false, error: e.toString());
+      state = state.copyWith(
+        isSending: false,
+        error: Helpers.friendlyErrorMessage(
+          e,
+          fallback: 'Impossible d\'envoyer le message pour le moment.',
+        ),
+      );
     }
   }
 
@@ -363,7 +369,12 @@ class MessageNotifier extends StateNotifier<MessagesState> {
         messages: state.messages.where((m) => m.id != messageId).toList(),
       );
     } catch (e) {
-      state = state.copyWith(error: e.toString());
+      state = state.copyWith(
+        error: Helpers.friendlyErrorMessage(
+          e,
+          fallback: 'Impossible de modifier ce message pour le moment.',
+        ),
+      );
     }
   }
 

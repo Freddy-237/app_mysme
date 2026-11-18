@@ -5,6 +5,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+void _httpLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
+
+String _describeBody(Map<String, dynamic> body) {
+  if (body.isEmpty) return '{}';
+  return '{${body.keys.join(', ')}}';
+}
+
 // ---------------------------------------------------------------------------
 // Keys
 // ---------------------------------------------------------------------------
@@ -24,12 +35,12 @@ const _kRetryDelays = [Duration(seconds: 1), Duration(seconds: 3)];
 //
 // Priority:
 //   1. Compile-time override  (flutter run --dart-define=API_BASE_URL=…)
-//   2. Fallback → production Railway API
+//   2. Fallback → production API (api.myst-me.com, hosted on Railway)
 // ---------------------------------------------------------------------------
 String get _baseUrl {
   const override = String.fromEnvironment('API_BASE_URL');
   if (override.isNotEmpty) return override;
-  return 'https://api-mystme-production.up.railway.app';
+  return 'https://api.myst-me.com';
 }
 
 /// Expose for socket_service.dart to reuse the same base URL.
@@ -45,6 +56,13 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
+}
+
+class SessionLostException extends ApiException {
+  SessionLostException([
+    String message =
+        'Session perdue. Restaurez votre compte ou créez une nouvelle identité.',
+  ]) : super(message, 401);
 }
 
 // ---------------------------------------------------------------------------
@@ -63,10 +81,11 @@ class HttpClient {
     _dio.interceptors.add(InterceptorsWrapper(
       onError: (DioException e, handler) async {
         final attempt = (e.requestOptions.extra['_retryCount'] as int?) ?? 0;
-        if (_isRetryable(e) && attempt < _kMaxRetries) {
+        if (_canRetryRequest(e.requestOptions, e) && attempt < _kMaxRetries) {
           final delay = _kRetryDelays[attempt];
-          debugPrint(
-              '[HttpClient.retry] ${e.requestOptions.path} attempt ${attempt + 1}/$_kMaxRetries after ${delay.inSeconds}s');
+          _httpLog(
+              '[HttpClient.retry] ${e.requestOptions.method} ${e.requestOptions.path} '
+              'attempt ${attempt + 1}/$_kMaxRetries after ${delay.inSeconds}s');
           await Future<void>.delayed(delay);
           e.requestOptions.extra['_retryCount'] = attempt + 1;
           try {
@@ -89,22 +108,30 @@ class HttpClient {
         return handler.next(options);
       },
       onError: (DioException e, handler) async {
-        debugPrint('[HttpClient.interceptor.onError] ${e.requestOptions.path} '
+        _httpLog('[HttpClient.interceptor.onError] ${e.requestOptions.path} '
             'type=${e.type} status=${e.response?.statusCode} msg=${e.message}');
-        // Auto re-init on 401 (expired / invalid token)
-        if (e.response?.statusCode == 401 && !_isReIniting) {
+        // Only a server-confirmed dead session may wipe local credentials.
+        // Business 401s (wrong OTP, wrong recovery key…) must never log out.
+        if (_isSessionInvalid(e) && !_isReIniting && _token != null) {
           _isReIniting = true;
           try {
             await clearSession();
-            await init();
-            // Retry original request with fresh token
-            final opts = e.requestOptions;
-            opts.headers['Authorization'] = 'Bearer $_token';
-            final retryRes = await _dio.fetch(opts);
             _isReIniting = false;
-            return handler.resolve(retryRes);
-          } catch (_) {
+            onSessionLost?.call();
+            return handler.reject(DioException(
+              requestOptions: e.requestOptions,
+              error: SessionLostException(),
+              type: e.type,
+              response: e.response,
+            ));
+          } catch (recoveryError) {
             _isReIniting = false;
+            return handler.reject(DioException(
+              requestOptions: e.requestOptions,
+              error: recoveryError,
+              type: e.type,
+              response: e.response,
+            ));
           }
         }
         // Convert DioException → ApiException for uniform handling
@@ -133,6 +160,11 @@ class HttpClient {
   late final Dio _dio;
   bool _isReIniting = false;
 
+  /// Called when the server rejected our token mid-session (credentials
+  /// already wiped). The auth layer uses it to send the user to recovery.
+  void Function()? onSessionLost;
+  Future<void>? _initFuture;
+
   String? _token;
   String? _userId;
 
@@ -140,37 +172,98 @@ class HttpClient {
   String? get userId => _userId;
   bool get isReady => _token != null && _userId != null;
 
+  /// True when credentials are stored locally, even if the server could not
+  /// be reached to validate them yet (offline start).
+  bool get hasStoredSession => _token != null && _userId != null;
+
   /// Expose underlying Dio instance for advanced use (e.g. file uploads).
   Dio get dio => _dio;
 
   // ── Bootstrap ────────────────────────────────────────────────────────────
-  /// Load stored token or create a new anonymous identity.
-  Future<void> init() async {
-    debugPrint('[HttpClient.init] reading stored token…');
+  /// Restore a stored session when possible.
+  ///
+  /// If no session exists locally, a fresh anonymous identity is created.
+  /// If a stored session exists but is invalid, [SessionLostException] is
+  /// thrown so the UI can offer recovery instead of silently creating a new
+  /// identity.
+  Future<void> init() {
+    if (_initFuture != null) {
+      return _initFuture!;
+    }
+
+    _initFuture = _doInit().whenComplete(() {
+      _initFuture = null;
+    });
+    return _initFuture!;
+  }
+
+  Future<void> _doInit() async {
+    _httpLog('[HttpClient.init] reading stored token');
     _token = await _storage.read(key: _kTokenKey);
     _userId = await _storage.read(key: _kUserIdKey);
-    debugPrint(
+    _httpLog(
         '[HttpClient.init] stored token=${_token != null ? "present" : "null"}, userId=$_userId');
 
     if (_token != null) {
       try {
         final me = await get('/identity/me');
         _userId = me['id'] as String;
-        debugPrint('[HttpClient.init] token valid — userId=$_userId');
+        await _storage.write(key: _kUserIdKey, value: _userId!);
+        _httpLog('[HttpClient.init] token valid');
+        await refreshSessionToken();
         return;
-      } catch (e) {
-        debugPrint('[HttpClient.init] token invalid, re-init: $e');
-        _token = null;
-        _userId = null;
+      } on ApiException catch (e) {
+        // Only a 401 from the server proves the session is dead. Network
+        // errors, timeouts, 5xx or a ban (403) must keep the stored session:
+        // wiping it would delete an anonymous account forever.
+        if (e is SessionLostException || e.statusCode == 401) {
+          _httpLog('[HttpClient.init] session rejected by server: $e');
+          await clearSession();
+          throw SessionLostException();
+        }
+        _httpLog(
+            '[HttpClient.init] cannot validate session now, keeping it: $e');
+        rethrow;
       }
     }
 
-    // No token → get a new anonymous identity
-    debugPrint('[HttpClient.init] creating new anonymous identity…');
-    final res = await _rawPost('/identity/init', {});
+    await createAnonymousIdentity();
+  }
+
+  /// Exchange the current (still valid) token for a fresh 30-day one.
+  /// Called on every start/resume so active users never hit expiry.
+  /// Failures are ignored: the current token keeps working.
+  Future<void> refreshSessionToken() async {
+    if (_token == null) return;
+    try {
+      final res = await _dio.get('/identity/session-token');
+      final fresh = (res.data is Map) ? res.data['token'] as String? : null;
+      if (fresh != null && fresh.isNotEmpty) {
+        _token = fresh;
+        await _storage.write(key: _kTokenKey, value: fresh);
+        _httpLog('[HttpClient] session token refreshed');
+      }
+    } catch (e) {
+      _httpLog('[HttpClient] session token refresh skipped: $e');
+    }
+  }
+
+  Future<void> createAnonymousIdentity() async {
+    // Never overwrite an existing account: a stored token means the user has
+    // an identity (maybe just offline). Recovery flows clear it explicitly
+    // first, via clearSession().
+    final storedToken = _token ?? await _storage.read(key: _kTokenKey);
+    if (storedToken != null) {
+      throw StateError(
+        'createAnonymousIdentity refused: an identity is already stored',
+      );
+    }
+    _httpLog('[HttpClient.init] creating new anonymous identity');
+    // 'app' identities never expire (web/PWA ones have a 7-day window).
+    final res = await _rawPost('/identity/init', {'client': 'app'});
     _token = res['token'] as String;
     _userId = (res['user'] as Map<String, dynamic>)['id'] as String;
-    debugPrint('[HttpClient.init] new identity created — userId=$_userId');
+    _httpLog('[HttpClient.init] new identity created');
 
     await _storage.write(key: _kTokenKey, value: _token!);
     await _storage.write(key: _kUserIdKey, value: _userId!);
@@ -229,55 +322,52 @@ class HttpClient {
 
   // ── HTTP verbs ─────────────────────────────────────────────────────────
   Future<dynamic> get(String path, {Map<String, String>? query}) async {
-    debugPrint('[HttpClient.GET] $path query=$query');
+    _httpLog('[HttpClient.GET] $path query=$query');
     try {
       final res = await _dio.get(path, queryParameters: query);
-      debugPrint('[HttpClient.GET] $path → ${res.statusCode}');
-      if (path.contains('/conversation/mine')) {
-        debugPrint('[HttpClient.GET] /conversation/mine BODY: ${res.data}');
-      }
+      _httpLog('[HttpClient.GET] $path → ${res.statusCode}');
       return res.data;
     } on DioException catch (e) {
-      debugPrint(
+      _httpLog(
           '[HttpClient.GET] $path FAILED: ${e.response?.statusCode} ${e.message}');
       throw _unwrap(e);
     }
   }
 
   Future<dynamic> post(String path, Map<String, dynamic> body) async {
-    debugPrint('[HttpClient.POST] $path body=$body');
+    _httpLog('[HttpClient.POST] $path body=${_describeBody(body)}');
     try {
       final res = await _dio.post(path, data: body);
-      debugPrint('[HttpClient.POST] $path → ${res.statusCode}');
+      _httpLog('[HttpClient.POST] $path → ${res.statusCode}');
       return res.data;
     } on DioException catch (e) {
-      debugPrint(
+      _httpLog(
           '[HttpClient.POST] $path FAILED: ${e.response?.statusCode} ${e.message}');
       throw _unwrap(e);
     }
   }
 
   Future<dynamic> patch(String path, Map<String, dynamic> body) async {
-    debugPrint('[HttpClient.PATCH] $path body=$body');
+    _httpLog('[HttpClient.PATCH] $path body=${_describeBody(body)}');
     try {
       final res = await _dio.patch(path, data: body);
-      debugPrint('[HttpClient.PATCH] $path → ${res.statusCode}');
+      _httpLog('[HttpClient.PATCH] $path → ${res.statusCode}');
       return res.data;
     } on DioException catch (e) {
-      debugPrint(
+      _httpLog(
           '[HttpClient.PATCH] $path FAILED: ${e.response?.statusCode} ${e.message}');
       throw _unwrap(e);
     }
   }
 
   Future<dynamic> delete(String path) async {
-    debugPrint('[HttpClient.DELETE] $path');
+    _httpLog('[HttpClient.DELETE] $path');
     try {
       final res = await _dio.delete(path);
-      debugPrint('[HttpClient.DELETE] $path → ${res.statusCode}');
+      _httpLog('[HttpClient.DELETE] $path → ${res.statusCode}');
       return res.data;
     } on DioException catch (e) {
-      debugPrint(
+      _httpLog(
           '[HttpClient.DELETE] $path FAILED: ${e.response?.statusCode} ${e.message}');
       throw _unwrap(e);
     }
@@ -285,23 +375,33 @@ class HttpClient {
 
   /// POST without auth header (for /identity/init before token exists).
   Future<dynamic> _rawPost(String path, Map<String, dynamic> body) async {
-    debugPrint('[HttpClient._rawPost] $path body=$body');
+    _httpLog('[HttpClient._rawPost] $path body=${_describeBody(body)}');
     try {
       final res = await _dio.post(
         path,
         data: body,
         options: Options(headers: {'Authorization': null}),
       );
-      debugPrint('[HttpClient._rawPost] $path → ${res.statusCode}');
+      _httpLog('[HttpClient._rawPost] $path → ${res.statusCode}');
       return res.data;
     } on DioException catch (e) {
-      debugPrint(
+      _httpLog(
           '[HttpClient._rawPost] $path FAILED: type=${e.type} status=${e.response?.statusCode} msg=${e.message}');
       throw _unwrap(e);
     }
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+  /// The server says our token is invalid/expired (see auth.middleware.js).
+  /// Falls back to "401 on /identity/me" for backends without the code.
+  static bool _isSessionInvalid(DioException e) {
+    if (e.response?.statusCode != 401) return false;
+    final body = e.response?.data;
+    final code = body is Map ? body['code'] : null;
+    if (code == 'AUTH_INVALID' || code == 'AUTH_REQUIRED') return true;
+    return code == null && e.requestOptions.path == '/identity/me';
+  }
+
   /// Whether a DioException is a transient network error worth retrying.
   static bool _isRetryable(DioException e) {
     switch (e.type) {
@@ -316,6 +416,13 @@ class HttpClient {
       default:
         return false;
     }
+  }
+
+  static bool _canRetryRequest(RequestOptions requestOptions, DioException e) {
+    final method = requestOptions.method.toUpperCase();
+    final isSafeMethod =
+        method == 'GET' || method == 'HEAD' || method == 'OPTIONS';
+    return isSafeMethod && _isRetryable(e);
   }
 
   /// Unwraps a DioException into an ApiException for callers.

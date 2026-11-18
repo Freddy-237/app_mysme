@@ -13,6 +13,7 @@ class ChatInputBar extends StatelessWidget {
     required this.focusNode,
     required this.expired,
     required this.isSending,
+    required this.sendLocked,
     required this.isRecordingAudio,
     required this.uploadProgress,
     required this.uploadLabel,
@@ -32,6 +33,7 @@ class ChatInputBar extends StatelessWidget {
   final FocusNode focusNode;
   final bool expired;
   final bool isSending;
+  final bool sendLocked;
   final bool isRecordingAudio;
   final double? uploadProgress;
   final String? uploadLabel;
@@ -50,7 +52,10 @@ class ChatInputBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canSend = controller.text.trim().isNotEmpty && !expired && !isSending;
+    final canSend = controller.text.trim().isNotEmpty &&
+        !expired &&
+        !isSending &&
+        !sendLocked;
     final isUploading = uploadProgress != null;
 
     return Container(

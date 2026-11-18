@@ -1,10 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:motion_tab_bar/MotionTabBarController.dart';
+import 'package:mysme/core/config/monetization.dart';
 import 'package:mysme/core/providers/auth_provider.dart';
+import 'package:mysme/core/providers/conversation_provider.dart';
+import 'package:mysme/core/providers/http_client.dart';
+import 'package:mysme/core/providers/link_provider.dart';
+import 'package:mysme/core/providers/socket_service.dart';
+import 'package:mysme/core/services/offline_queue_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mysme/core/theme/app_colors.dart';
+import 'package:mysme/core/utils/helpers.dart';
 import 'package:mysme/features/home/widgets/custom_bottom_nav.dart';
+import 'package:mysme/features/settings/privacy_policy.dart';
+
+part 'settings_page_actions.dart';
+part 'settings_page_sections.dart';
+part 'settings_page_widgets.dart';
 
 /// Settings page — matches the MystMe mockup with grouped cards.
 class SettingsPage extends ConsumerStatefulWidget {
@@ -18,6 +32,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
     with TickerProviderStateMixin {
   late MotionTabBarController _tabController;
   bool _isSavingNotifications = false;
+  bool _isDeletingAccount = false;
+
+  void _setDeletingAccount(bool value) {
+    if (!mounted) return;
+    setState(() => _isDeletingAccount = value);
+  }
 
   @override
   void initState() {
@@ -43,11 +63,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
       await ref.read(authProvider.notifier).updateNotificationPreference(value);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content:
-              Text('Impossible de mettre à jour les notifications: $error'),
-        ),
+      Helpers.showErrorSnack(
+        context,
+        error,
+        fallback:
+            'Impossible de mettre à jour les notifications pour le moment.',
       );
     } finally {
       if (mounted) {
@@ -98,31 +118,30 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
                   ),
                   const SizedBox(height: 16),
 
-                  // ── Card 2: Mysme Premium ──
-                  _SettingsCard(
-                    children: [
-                      _SettingsTile(
-                        icon: Icons.star_outline_rounded,
-                        label: 'Mysme Premium',
-                        trailing: const Icon(
-                          Icons.chevron_right_rounded,
-                          color: AppColors.primaryStart,
+                  if (kPremiumPaymentsEnabled) ...[
+                    _SettingsCard(
+                      children: [
+                        _SettingsTile(
+                          icon: Icons.star_outline_rounded,
+                          label: 'Mysme Premium',
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: AppColors.primaryStart,
+                          ),
+                          onTap: () => context.push('/paywall'),
                         ),
-                        onTap: () => context.push('/paywall'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // ── Card 3: Contact Support + Conditions ──
                   _SettingsCard(
                     children: [
                       _SettingsTile(
                         icon: Icons.help_outline_rounded,
-                        label: 'Contact Support',
-                        onTap: () {
-                          // TODO: open support
-                        },
+                        label: 'Contacter le support',
+                        onTap: _openSupport,
                       ),
                       const _TileDivider(),
                       _SettingsTile(
@@ -132,9 +151,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
                           Icons.chevron_right_rounded,
                           color: AppColors.primaryStart,
                         ),
-                        onTap: () {
-                          // TODO: open terms
-                        },
+                        onTap: _openTerms,
+                      ),
+                      const _TileDivider(),
+                      _SettingsTile(
+                        icon: Icons.privacy_tip_outlined,
+                        label: 'Politique de confidentialité',
+                        trailing: const Icon(
+                          Icons.chevron_right_rounded,
+                          color: AppColors.primaryStart,
+                        ),
+                        onTap: () => showPrivacyPolicy(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Card 4: Danger zone ──
+                  _SettingsCard(
+                    children: [
+                      _SettingsTile(
+                        icon: Icons.delete_forever_outlined,
+                        label: 'Supprimer mon compte',
+                        color: AppColors.error,
+                        trailing: _isDeletingAccount
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : null,
+                        onTap:
+                            _isDeletingAccount ? null : _confirmDeleteAccount,
                       ),
                     ],
                   ),
@@ -155,122 +204,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
             context.go('/discussions');
           }
         },
-      ),
-    );
-  }
-
-  /// Violet gradient header — same style as other pages.
-  Widget _buildHeader() {
-    return Container(
-      height: 120,
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryStart, AppColors.primaryEnd],
-        ),
-        borderRadius: BorderRadius.only(
-          bottomRight: Radius.circular(80),
-        ),
-      ),
-      padding: const EdgeInsets.only(top: 56, left: 24),
-      child: const Align(
-        alignment: Alignment.topLeft,
-        child: Text(
-          'SETTINGS',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Private sub-widgets
-// ──────────────────────────────────────────────────────────────
-
-/// A rounded card that groups several [_SettingsTile]s.
-class _SettingsCard extends StatelessWidget {
-  const _SettingsCard({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.primaryStart.withAlpha(40),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: children,
-      ),
-    );
-  }
-}
-
-/// A single settings row with icon, label and optional trailing widget.
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({
-    required this.icon,
-    required this.label,
-    this.trailing,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(icon, color: AppColors.primaryStart, size: 26),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ),
-            if (trailing != null) trailing!,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Thin divider used between tiles inside a card.
-class _TileDivider extends StatelessWidget {
-  const _TileDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Divider(
-        height: 1,
-        thickness: 1,
-        color: AppColors.primaryStart.withAlpha(25),
       ),
     );
   }

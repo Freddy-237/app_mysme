@@ -37,8 +37,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   motion_tab_bar: ^2.0.4
   flutter_svg: ^2.1.0
-  font_awesome_flutter: 10.7.0
+  font_awesome_flutter: ^11.0.0
   share_plus: ^10.1.4
+  url_launcher: ^6.1.10
   shared_preferences: ^2.3.4
   flutter_riverpod: ^2.6.1
   flutter_secure_storage: ^9.2.4
@@ -58,13 +59,14 @@ dependencies:
   just_audio: ^0.9.42
   audio_waveforms: ^1.0.5
   permission_handler: ^11.4.0
-  in_app_purchase: ^3.2.0
   firebase_core: ^3.15.2
   firebase_messaging: ^15.2.10
   app_links: ^6.4.1
   freezed_annotation: ^2.4.1
   json_annotation: ^4.9.0
   flutter_local_notifications: ^19.5.0
+  cryptography: ^2.9.0
+  android_play_install_referrer: ^0.4.0
   # sentry_flutter: ^9.14.0  # temporarily disabled – requires NDK
 
 dev_dependencies:

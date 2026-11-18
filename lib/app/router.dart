@@ -8,6 +8,7 @@ import 'package:mysme/features/chat/chat_screen.dart';
 import 'package:mysme/features/deeplink/deeplink_welcome_screen.dart';
 import 'package:mysme/features/paywall/paywall_screen.dart';
 import 'package:mysme/features/profile/profile_screen.dart';
+import 'package:mysme/features/session_recovery/session_recovery_screen.dart';
 import 'package:mysme/features/settings/settings_page.dart';
 
 /// Named-route path constants (same values as AppRoutes for easy migration).
@@ -21,6 +22,7 @@ abstract class RoutePaths {
   static const deepLinkWelcome = '/deeplink-welcome';
   static const paywall = '/paywall';
   static const profile = '/profile';
+  static const sessionRecovery = '/session-recovery';
   static const settings = '/settings';
 }
 
@@ -89,6 +91,11 @@ final GoRouter appRouter = GoRouter(
       path: RoutePaths.profile,
       name: 'profile',
       builder: (context, state) => const ProfileScreen(),
+    ),
+    GoRoute(
+      path: RoutePaths.sessionRecovery,
+      name: 'session-recovery',
+      builder: (context, state) => const SessionRecoveryScreen(),
     ),
     GoRoute(
       path: RoutePaths.settings,

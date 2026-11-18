@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:mysme/core/config/monetization.dart';
 import 'package:mysme/core/theme/app_colors.dart';
 
-/// Lock overlay shown when a conversation reaches 7 days.
-/// Offers "Unlock discussion 2$" or "Pass Premium".
+/// Lock overlay used only when conversation expiry is enabled.
 class ChatLockOverlay extends StatelessWidget {
   const ChatLockOverlay({
     super.key,
     this.onUnlock,
   });
 
-  /// Called when the user taps "Unlock discussion".
+  /// Called when the user taps the unlock action.
   final VoidCallback? onUnlock;
 
   @override
   Widget build(BuildContext context) {
+    if (!kConversationExpiryEnabled) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
       color: Colors.black.withOpacity(0.15),
       child: Column(
@@ -38,15 +41,38 @@ class ChatLockOverlay extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Lock icon
                   const Icon(
                     Icons.lock_rounded,
                     size: 100,
                     color: AppColors.primaryEnd,
                   ),
                   const SizedBox(height: 30),
-
-                  // Unlock button
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 28),
+                    child: Text(
+                      'Cette conversation est temporairement indisponible.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryEnd,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 28),
+                    child: Text(
+                      'Le lancement actuel ne propose pas de déblocage payant.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 28),
                     child: SizedBox(
@@ -62,61 +88,8 @@ class ChatLockOverlay extends StatelessWidget {
                           ),
                           elevation: 0,
                         ),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Unlock discusion',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '2\$',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  // OR
-                  const Text(
-                    'OR',
-                    style: TextStyle(
-                      color: AppColors.primaryEnd,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  // Pass Premium button
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 28),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          context.push('/paywall');
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryEnd,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 0,
-                        ),
                         child: const Text(
-                          'Pass Premium',
+                          'Option indisponible',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,

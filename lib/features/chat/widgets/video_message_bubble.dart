@@ -1,7 +1,14 @@
 import 'package:chewie/chewie.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mysme/core/theme/app_colors.dart';
 import 'package:video_player/video_player.dart';
+
+void _videoBubbleLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 /// Inline video player displayed inside a chat bubble.
 class VideoMessageBubble extends StatefulWidget {
@@ -49,7 +56,8 @@ class _VideoMessageBubbleState extends State<VideoMessageBubble> {
         errorBuilder: (ctx, msg) => _buildError(),
       );
       setState(() {});
-    } catch (_) {
+    } catch (e) {
+      _videoBubbleLog('[VideoMessageBubble._initPlayer] ERROR: $e');
       if (!mounted) return;
       setState(() => _hasError = true);
     }

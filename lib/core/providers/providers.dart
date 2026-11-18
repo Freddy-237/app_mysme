@@ -9,6 +9,7 @@ export 'http_client.dart'
         httpClientProvider,
         HttpClient,
         ApiException,
+        SessionLostException,
         secureStorageProvider,
         apiBaseUrl;
 export 'auth_provider.dart' show authProvider, AuthNotifier, AuthState;

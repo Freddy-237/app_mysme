@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mysme/shared/widgets/themed_icon_button.dart';
 import 'package:mysme/core/providers/providers.dart';
 import 'package:mysme/core/theme/app_colors.dart';
 
@@ -31,6 +32,7 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
   Timer? _debounce;
   List<MessageDto> _results = [];
   bool _loading = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -45,10 +47,14 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
       setState(() {
         _results = [];
         _loading = false;
+        _error = null;
       });
       return;
     }
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     _debounce = Timer(const Duration(milliseconds: 400), () async {
       try {
         final results = await widget.messageRepository.searchMessages(
@@ -59,10 +65,14 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
         setState(() {
           _results = results;
           _loading = false;
+          _error = null;
         });
-      } catch (_) {
+      } catch (error) {
         if (!mounted) return;
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _error = 'Recherche impossible pour le moment';
+        });
       }
     });
   }
@@ -83,7 +93,7 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back),
+                    icon: Icon(adaptiveBackIcon(context)),
                     onPressed: widget.onClose,
                   ),
                   Expanded(
@@ -128,6 +138,14 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
                   width: 24,
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Colors.red.shade400),
                 ),
               )
             else if (_results.isNotEmpty)

@@ -6,6 +6,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 import 'package:mysme/core/services/offline_queue_service.dart';
 
+void _socketLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Event name constants
 // ---------------------------------------------------------------------------
@@ -33,6 +39,8 @@ typedef JsonCallback = void Function(Map<String, dynamic> data);
 typedef StringCallback = void Function(String conversationId);
 typedef DisposeCallback = void Function();
 
+const _kSocketConnectTimeout = Duration(seconds: 12);
+
 class SocketService {
   SocketService(this._storage, {this.offlineQueue});
   final FlutterSecureStorage _storage;
@@ -45,6 +53,7 @@ class SocketService {
 
   /// Track joined rooms so we can re-join after reconnect.
   final Set<String> _joinedRooms = {};
+  Completer<void>? _inFlightConnect;
 
   // ── life-cycle ────────────────────────────────────────────────────────────
 
@@ -56,13 +65,22 @@ class SocketService {
     // If already connected, nothing to do.
     if (isConnected) return;
 
+    final existingConnect = _inFlightConnect;
+    if (existingConnect != null) {
+      await existingConnect.future;
+      return;
+    }
+
+    final completer = Completer<void>();
+    _inFlightConnect = completer;
+
     // Dispose previous dead socket before creating a new one.
     _socket?.dispose();
     _socket = null;
 
     final token = await _storage.read(key: 'mystme_token');
 
-    _socket = sio.io(
+    final socket = sio.io(
       serverUrl,
       sio.OptionBuilder()
           .setTransports(['websocket'])
@@ -74,29 +92,60 @@ class SocketService {
           .setReconnectionDelayMax(30000)
           .build(),
     );
+    _socket = socket;
 
     // Re-join all tracked rooms after reconnect & flush offline queue
-    _socket!.onConnect((_) {
-      debugPrint('[SocketService] connected to $serverUrl');
+    socket.onConnect((_) {
+      _socketLog('[SocketService] connected');
       for (final roomId in _joinedRooms) {
-        _socket?.emit('join_conversation', roomId);
+        socket.emit('join_conversation', roomId);
       }
-      offlineQueue?.flush();
+      unawaited(offlineQueue?.pruneAndFlush() ?? Future<int>.value(0));
+      if (identical(_socket, socket) && !completer.isCompleted) {
+        completer.complete();
+      }
     });
 
-    _socket!.onDisconnect((reason) {
-      debugPrint('[SocketService] disconnected reason=$reason');
+    socket.onDisconnect((reason) {
+      _socketLog('[SocketService] disconnected reason=$reason');
+      if (identical(_socket, socket) && !completer.isCompleted) {
+        completer.completeError(
+          Exception('Socket déconnecté avant établissement de la connexion'),
+        );
+      }
     });
 
-    _socket!.onConnectError((data) {
-      debugPrint('[SocketService] connect error: $data');
+    socket.onConnectError((data) {
+      _socketLog('[SocketService] connect error: $data');
+      if (identical(_socket, socket) && !completer.isCompleted) {
+        completer.completeError(
+          Exception('Connexion socket impossible: $data'),
+        );
+      }
     });
 
-    _socket!.onError((data) {
-      debugPrint('[SocketService] socket error: $data');
+    socket.onError((data) {
+      _socketLog('[SocketService] socket error: $data');
+      if (identical(_socket, socket) && !completer.isCompleted) {
+        completer.completeError(Exception('Erreur socket: $data'));
+      }
     });
 
-    _socket!.connect();
+    socket.connect();
+
+    try {
+      await completer.future.timeout(_kSocketConnectTimeout);
+    } catch (_) {
+      if (identical(_socket, socket)) {
+        socket.disconnect();
+        _socket = null;
+      }
+      rethrow;
+    } finally {
+      if (identical(_inFlightConnect, completer)) {
+        _inFlightConnect = null;
+      }
+    }
   }
 
   /// Reconnect with a fresh token (e.g. after app resume).
@@ -107,6 +156,7 @@ class SocketService {
   }
 
   void disconnect() {
+    _inFlightConnect = null;
     _joinedRooms.clear();
     _socket?.disconnect();
     _socket = null;
@@ -176,9 +226,8 @@ class SocketService {
       },
     );
 
-    debugPrint(
-      '[SocketService] sendMediaBytes conversationId=$conversationId '
-      'mediaType=$mediaType filename=$filename bytes=${bytes.length}',
+    _socketLog(
+      '[SocketService] sendMediaBytes mediaType=$mediaType bytes=${bytes.length}',
     );
 
     // 120 s timeout for large files on slow connections.

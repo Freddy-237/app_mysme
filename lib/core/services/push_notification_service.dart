@@ -2,9 +2,16 @@ import 'dart:async';
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mysme/core/providers/http_client.dart';
 import 'package:mysme/firebase_options.dart';
+
+void _pushLog(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 /// Android notification channel for chat messages.
 const _androidChannel = AndroidNotificationChannel(
@@ -65,6 +72,14 @@ class PushNotificationService {
     _tokenSub = null;
     _fgSub = null;
     _initialized = false;
+  }
+
+  static Future<void> _deleteFirebaseToken() async {
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (error) {
+      _pushLog('[PushNotificationService] deleteToken failed: $error');
+    }
   }
 
   /// Set up a callback to handle notification taps (when app is in background
@@ -166,16 +181,20 @@ class PushNotificationService {
         );
       }
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission();
-      await messaging.getToken();
 
-      // Initialize local notifications for foreground display
+      // Create the Android notification channel early so the app is visible in
+      // the system notification settings and channels exist before any push is
+      // delivered.
       await _initLocalNotifications();
+
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      await messaging.getToken();
 
       await _bindForegroundListener();
 
       _initialized = true;
-    } catch (_) {
+    } catch (error) {
+      _pushLog('[PushNotificationService] Initialization skipped: $error');
       // Firebase not configured yet in native targets.
       // Keep app functional; initialization can be enabled once config files are added.
     }
@@ -188,6 +207,7 @@ class PushNotificationService {
     _notificationsEnabled = enabled;
 
     if (!enabled) {
+      await _deleteFirebaseToken();
       await _disableHandlers();
       return;
     }
@@ -224,8 +244,14 @@ class PushNotificationService {
         if (newToken.isEmpty) return;
         try {
           await client.patch('/identity/push-token', {'token': newToken});
-        } catch (_) {}
+        } catch (error) {
+          _pushLog(
+            '[PushNotificationService] Token refresh sync failed: $error',
+          );
+        }
       });
-    } catch (_) {}
+    } catch (error) {
+      _pushLog('[PushNotificationService] Token sync failed: $error');
+    }
   }
 }
