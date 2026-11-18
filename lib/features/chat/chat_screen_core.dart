@@ -525,6 +525,16 @@ extension _ChatScreenCore on _ChatScreenState {
                 'Connexion perdue. Le message n\'a pas pu être mis en attente.',
           );
         }
+      } else if (e is ApiException &&
+          e.statusCode == 403 &&
+          e.message.toLowerCase().contains('bloqu')) {
+        // The other participant blocked the conversation: refresh it so the
+        // input bar gives way to the "blocked" banner.
+        _input.text = text;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cette discussion a été bloquée.')),
+        );
+        await _loadConversation();
       } else {
         _input.text = text;
         Helpers.showErrorSnack(
@@ -670,16 +680,66 @@ extension _ChatScreenCore on _ChatScreenState {
     );
   }
 
+  Future<void> _confirmBlock() async {
+    final id = _conversationId;
+    if (id == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Bloquer cette discussion ?'),
+        content: const Text(
+          'Plus personne ne pourra y écrire, ni toi ni ton correspondant. '
+          'Les messages déjà échangés restent visibles. '
+          'Tu peux aussi signaler la personne si elle te harcèle.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.primaryEnd),
+            child: const Text('Bloquer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final updated =
+          await ref.read(conversationProvider.notifier).blockConversation(id);
+      if (!mounted) return;
+      setState(() {
+        _conversation = updated;
+        _replyTo = null;
+      });
+      _inputFocus.unfocus();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Discussion bloquée')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Helpers.showErrorSnack(
+        context,
+        e,
+        fallback: 'Impossible de bloquer cette discussion pour le moment.',
+      );
+    }
+  }
+
   void _showMenu() {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
+      // Scrollable: with five actions the sheet no longer fits small screens.
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -733,6 +793,18 @@ extension _ChatScreenCore on _ChatScreenState {
                     }
                   },
                 ),
+                if (!_isBlocked) ...[
+                  const SizedBox(height: 12),
+                  MenuButton(
+                    label: 'Bloquer cette discussion',
+                    icon: Icons.block,
+                    iconColor: AppColors.primaryEnd,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _confirmBlock();
+                    },
+                  ),
+                ],
                 const SizedBox(height: 12),
                 MenuButton(
                   label: _hasReportedConversation

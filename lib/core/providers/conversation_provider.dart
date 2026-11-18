@@ -603,22 +603,16 @@ class ConversationNotifier extends StateNotifier<ConversationsState> {
     return conv;
   }
 
-  /// Block a conversation.
-  Future<void> blockConversation(String id) async {
-    try {
-      final updated = await _repo.blockConversation(id);
-      state = state.copyWith(
-        conversations:
-            state.conversations.map((c) => c.id == id ? updated : c).toList(),
-      );
-    } catch (e) {
-      state = state.copyWith(
-        error: Helpers.friendlyErrorMessage(
-          e,
-          fallback: 'Impossible de bloquer cette discussion pour le moment.',
-        ),
-      );
-    }
+  /// Block a conversation: nobody can write in it any more.
+  /// Throws on failure so the screen can tell the user.
+  Future<ConversationDto> blockConversation(String id) async {
+    final updated = await _repo.blockConversation(id);
+    state = state.copyWith(
+      conversations:
+          state.conversations.map((c) => c.id == id ? updated : c).toList(),
+    );
+    _ignoreFuture(_saveCache());
+    return updated;
   }
 
   /// Archive a conversation.

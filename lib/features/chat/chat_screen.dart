@@ -12,6 +12,7 @@ import 'package:mysme/core/theme/app_colors.dart';
 import 'package:mysme/core/utils/helpers.dart';
 import 'package:mysme/features/chat/chat_send_error.dart';
 import 'package:mysme/features/chat/chat_send_guard.dart';
+import 'package:mysme/features/chat/widgets/chat_blocked_banner.dart';
 import 'package:mysme/features/chat/widgets/chat_header.dart';
 import 'package:mysme/features/chat/widgets/chat_input_bar.dart';
 import 'package:mysme/features/chat/widgets/chat_lock_overlay.dart';
@@ -92,7 +93,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return _conversation!.isExpired;
   }
 
-  bool get _isInteractionRestricted => _isLocked || _expired;
+  bool get _isBlocked => _conversation?.isBlocked ?? false;
+
+  bool get _isInteractionRestricted => _isLocked || _expired || _isBlocked;
 
   @override
   void initState() {
@@ -271,7 +274,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                 ),
               ),
-              if (!_expired && !_isLocked)
+              if (_isBlocked)
+                ChatBlockedBanner(bottomPadding: mq.padding.bottom)
+              else if (!_expired && !_isLocked)
                 RepaintBoundary(
                   child: ChatInputBar(
                     bottomPadding: mq.padding.bottom,
