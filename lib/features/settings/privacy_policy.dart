@@ -12,7 +12,7 @@ const List<({String title, String body})> kPrivacyPolicySections = [
   ),
   (
     title: 'Qui est responsable',
-    body: 'MystMe est édité par [NOM DE L\'ÉDITEUR À COMPLÉTER]. Pour toute question sur tes données, écris-nous à contact@fridevs.com.',
+    body: 'MystMe est édité par Freddy2. Pour toute question sur tes données, écris-nous à freddywafo3@gmail.com.',
   ),
   (
     title: 'Les données que nous traitons',
@@ -40,11 +40,11 @@ const List<({String title, String body})> kPrivacyPolicySections = [
   ),
   (
     title: 'Supprimer ton compte',
-    body: 'Dans l\'application : Réglages, puis « Supprimer mon compte ». La suppression est immédiate et définitive : ton compte, ton lien, tes conversations, tes messages et tes fichiers sont effacés, y compris chez tes correspondants. Si tu n\'as plus accès à l\'application, écris-nous à contact@fridevs.com.',
+    body: 'Dans l\'application : Réglages, puis « Supprimer mon compte ». La suppression est immédiate et définitive : ton compte, ton lien, tes conversations, tes messages et tes fichiers sont effacés, y compris chez tes correspondants. Si tu n\'as plus accès à l\'application, écris-nous à freddywafo3@gmail.com.',
   ),
   (
     title: 'Tes droits',
-    body: 'Tu peux demander l\'accès à tes données, leur rectification, leur effacement, ou t\'opposer à leur traitement en nous écrivant à contact@fridevs.com. Tu peux aussi saisir l\'autorité de protection des données de ton pays.',
+    body: 'Tu peux demander l\'accès à tes données, leur rectification, leur effacement, ou t\'opposer à leur traitement en nous écrivant à freddywafo3@gmail.com. Tu peux aussi saisir l\'autorité de protection des données de ton pays.',
   ),
   (
     title: 'Âge minimum',
@@ -52,7 +52,7 @@ const List<({String title, String body})> kPrivacyPolicySections = [
   ),
   (
     title: 'Sécurité',
-    body: 'Les échanges avec nos serveurs sont chiffrés (HTTPS). Sur ton téléphone, ta session est conservée dans le stockage sécurisé du système. Aucun système n\'est infaillible : si tu constates un problème de sécurité, préviens-nous à contact@fridevs.com.',
+    body: 'Les échanges avec nos serveurs sont chiffrés (HTTPS). Sur ton téléphone, ta session est conservée dans le stockage sécurisé du système. Aucun système n\'est infaillible : si tu constates un problème de sécurité, préviens-nous à freddywafo3@gmail.com.',
   ),
   (
     title: 'Modifications',

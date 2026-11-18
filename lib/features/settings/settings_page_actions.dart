@@ -1,6 +1,6 @@
 part of 'settings_page.dart';
 
-const _supportEmail = 'contact@fridevs.com';
+const _supportEmail = 'freddywafo3@gmail.com';
 
 extension _SettingsPageActions on _SettingsPageState {
   Future<void> _openSupport() async {
