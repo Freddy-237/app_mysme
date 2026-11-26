@@ -19,9 +19,9 @@ allprojects {
 subprojects { project ->
     if (project.path != ':app' && !project.extensions.extraProperties.has('flutter')) {
         project.extensions.extraProperties.set('flutter', [
-            compileSdkVersion: 35,
+            compileSdkVersion: 36,
             minSdkVersion    : 21,
-            targetSdkVersion : 35,
+            targetSdkVersion : 36,
             ndkVersion       : '27.0.12077973',
         ])
     }
