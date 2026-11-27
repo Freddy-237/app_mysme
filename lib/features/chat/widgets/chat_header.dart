@@ -9,60 +9,20 @@ class ChatHeader extends StatelessWidget {
     super.key,
     required this.topPadding,
     required this.peerPseudo,
-    required this.identityRevealed,
-    required this.trustLevel,
     required this.isTyping,
     required this.isOnline,
     required this.formattedRemaining,
     required this.onBack,
-    required this.onTrustTap,
     required this.onMenu,
   });
 
   final double topPadding;
   final String peerPseudo;
-  final bool identityRevealed;
-  final String? trustLevel;
   final bool isTyping;
   final bool isOnline;
   final String formattedRemaining;
   final VoidCallback onBack;
-  final VoidCallback onTrustTap;
   final VoidCallback onMenu;
-
-  static String trustLabel(String? level) {
-    switch (level) {
-      case 'new':
-        return 'Nouveau';
-      case 'known':
-        return 'Connu';
-      case 'trusted':
-        return 'Fiable';
-      case 'revealed':
-        return 'Révélé';
-      case 'partial':
-        return 'Partiel';
-      case 'anonymous':
-      default:
-        return 'Anonyme';
-    }
-  }
-
-  static Color trustColor(String? level) {
-    switch (level) {
-      case 'known':
-      case 'partial':
-        return const Color(0xFFFFC857);
-      case 'trusted':
-        return const Color(0xFF36C690);
-      case 'revealed':
-        return const Color(0xFF7EE081);
-      case 'new':
-      case 'anonymous':
-      default:
-        return Colors.white.withOpacity(0.28);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -142,7 +102,7 @@ class ChatHeader extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      identityRevealed ? 'Identité révélée' : peerPseudo,
+                      peerPseudo,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -178,27 +138,6 @@ class ChatHeader extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              GestureDetector(
-                onTap: onTrustTap,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: trustColor(trustLevel),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    trustLabel(trustLevel),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
