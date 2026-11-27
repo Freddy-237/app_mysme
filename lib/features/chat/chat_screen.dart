@@ -57,8 +57,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Timer? _typingTimer;
   Duration _remaining = Duration.zero;
   bool _expired = false;
-  bool _identityRevealed = false;
-  String? _trustLevel = 'anonymous';
   bool _isTyping = false; // other person is typing
   bool _isOtherOnline = false;
   bool _isSending = false;
@@ -220,13 +218,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   topPadding: mq.padding.top,
                   peerPseudo:
                       _conversation?.peerPseudo(authUserId) ?? 'Anonyme',
-                  identityRevealed: _identityRevealed,
-                  trustLevel: _trustLevel,
                   isTyping: _isTyping,
                   isOnline: _isOtherOnline,
                   formattedRemaining: _formatRemaining(),
                   onBack: () => Navigator.pop(context),
-                  onTrustTap: _showTrustInfo,
                   onMenu: _showMenu,
                 ),
               ),

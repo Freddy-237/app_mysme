@@ -21,7 +21,6 @@ extension _ChatScreenCore on _ChatScreenState {
       _startCountdown();
       await _setupSocket();
       await _syncOpenConversationReadState();
-      await _loadTrustLevel();
     } catch (e) {
       if (!mounted) return;
       if (_conversation == null) {
@@ -162,7 +161,6 @@ extension _ChatScreenCore on _ChatScreenState {
     try {
       await _setupSocket();
       await _syncOpenConversationReadState();
-      await _loadTrustLevel();
     } catch (error) {
       if (!mounted) return;
       _showSocketRetrySnack(error);
@@ -398,52 +396,6 @@ extension _ChatScreenCore on _ChatScreenState {
     if (_remaining.inMinutes > 0) return '-${_remaining.inMinutes}min';
     if (_remaining.inSeconds > 0) return '-${_remaining.inSeconds}s';
     return '0';
-  }
-
-  Future<void> _loadTrustLevel() async {
-    try {
-      final trust =
-          await ref.read(trustRepositoryProvider).getTrust(_conversationId!);
-      if (!mounted) return;
-      setState(() {
-        _identityRevealed = trust.level == 'revealed';
-        _trustLevel = trust.level;
-      });
-    } catch (e) {
-      _chatLog('[ChatScreen._loadTrustLevel] ERROR: $e');
-      // Ignore: trust may not be initialized for old conversations.
-    }
-  }
-
-  void _showTrustInfo() {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Niveau de confiance: ${ChatHeader.trustLabel(_trustLevel)}',
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Ce badge evolue selon vos interactions. Il ne revele pas votre identite a lui seul.',
-                style: TextStyle(
-                    fontSize: 14, height: 1.4, color: AppColors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _handleSingleUnlock() async {
