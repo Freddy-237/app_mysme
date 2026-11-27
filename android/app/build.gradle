@@ -14,12 +14,14 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.mystme.app"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
+        // Required by flutter_local_notifications (java.time on older Android).
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -30,8 +32,8 @@ android {
 
     defaultConfig {
         applicationId  "com.mystme.app"
-        minSdk = 23
-        targetSdk = 35
+        minSdkVersion = flutter.minSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -56,4 +58,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
 }
